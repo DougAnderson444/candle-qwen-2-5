@@ -2,7 +2,7 @@
 //!
 //! # Example usage
 //! ```sh
-//! cargo run --release -- --which 0.5b --prompt "Hello, world!"
+//! cargo run --release -- --which 3b --prompt "Hello, world!"
 //! ```
 use anyhow::Result;
 use clap::Parser;
@@ -23,4 +23,3 @@ fn main() -> Result<()> {
     };
     run(args)
 }
-
