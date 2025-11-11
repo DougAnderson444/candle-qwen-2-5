@@ -1,2 +1,2 @@
 run:
-  cargo run --release -- --which 3b --prompt "Hello, world!"
+  cargo run -p candle-qwen2-5-cli --release -- --which 3b --prompt "Hello, world!"

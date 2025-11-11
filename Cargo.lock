@@ -245,7 +245,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "candle-qwen2-5"
+name = "candle-qwen2-5-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-qwen2-5-core",
+ "clap",
+ "tracing",
+ "tracing-chrome",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "candle-qwen2-5-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -253,7 +265,6 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
- "clap",
  "hf-hub",
  "log",
  "num-traits",
@@ -262,9 +273,6 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokenizers",
- "tracing",
- "tracing-chrome",
- "tracing-subscriber",
 ]
 
 [[package]]
