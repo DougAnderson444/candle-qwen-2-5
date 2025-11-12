@@ -1,7 +1,12 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
+use std::io::Write;
+use tracing_chrome::ChromeLayerBuilder;
+use tracing_subscriber::prelude::*;
 
-use candle_qwen2_5_core::{run, ModelArgs, Which as CoreWhich};
+use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which as CoreWhich};
+
+const DEFAULT_PROMPT: &str = "Write a Rust function to calculate the factorial of a given number.";
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, ValueEnum)]
 enum Which {
@@ -87,9 +92,6 @@ impl From<Which> for CoreWhich {
 }
 
 fn main() -> Result<()> {
-    use tracing_chrome::ChromeLayerBuilder;
-    use tracing_subscriber::prelude::*;
-
     let args = Args::parse();
     let _guard = if args.tracing {
         let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
@@ -101,7 +103,6 @@ fn main() -> Result<()> {
 
     let model_args = ModelArgs {
         model: args.model,
-        prompt: args.prompt,
         sample_len: args.sample_len,
         tokenizer: args.tokenizer,
         temperature: args.temperature,
@@ -116,5 +117,26 @@ fn main() -> Result<()> {
         which: args.which.into(),
     };
 
-    run(model_args)
+    let mut model = Qwen2Model::new(&model_args)?;
+
+    let prompt_str = args.prompt.unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+
+    let stats = model.generate(&prompt_str, model_args.sample_len, |token| {
+        print!("{token}");
+        std::io::stdout().flush()?;
+        Ok(())
+    })?;
+
+    println!(
+        "\n\n{:4} prompt tokens processed: {:.2} token/s",
+        stats.prompt_tokens,
+        stats.prompt_tokens as f64 / stats.prompt_processing_time.as_secs_f64(),
+    );
+    println!(
+        "{:4} tokens generated: {:.2} token/s",
+        stats.generated_tokens,
+        stats.generated_tokens as f64 / stats.generation_time.as_secs_f64(),
+    );
+
+    Ok(())
 }
