@@ -171,25 +171,20 @@ pub fn device(cpu: bool) -> candle::Result<Device> {
         Ok(Device::Cpu)
     } else {
         let device = Device::cuda_if_available(0)?;
-        if !device.is_cuda() {
-            println!("Running on CPU, to run on GPU, build this example with '--features cuda'");
-        }
         Ok(device)
     }
 }
 
 pub fn run(args: ModelArgs) -> Result<()> {
-    println!(
-        "avx: {}, neon: {}, simd128: {}, f16c: {}",
-        candle::utils::with_avx(),
-        candle::utils::with_neon(),
-        candle::utils::with_simd128(),
-        candle::utils::with_f16c()
-    );
-    println!(
-        "temp: {:.2} repeat-penalty: {:.2} repeat-last-n: {}",
-        args.temperature, args.repeat_penalty, args.repeat_last_n
-    );
+pub struct RunOutput {
+    pub generated_text: String,
+    pub prompt_tokens: usize,
+    pub generated_tokens: usize,
+    pub prompt_token_per_sec: f64,
+    pub generated_token_per_sec: f64,
+}
+
+                                         // Hardware and sampling info removed from printing; will be handled in main.rs
 
     let model_path = args.model()?;
     let mut file = std::fs::File::open(&model_path)?;
@@ -204,16 +199,10 @@ pub fn run(args: ModelArgs) -> Result<()> {
             total_size_in_bytes +=
                 elem_count * tensor.ggml_dtype.type_size() / tensor.ggml_dtype.block_size();
         }
-        println!(
-            "loaded {} tensors ({}) in {:.2}s",
-            model.tensor_infos.len(),
-            &format_size(total_size_in_bytes),
-            start.elapsed().as_secs_f32(),
-        );
+        // Model loading info removed from printing; will be handled in main.rs
         Qwen2::from_gguf(model, &mut file, &device)?
     };
-    println!("model built");
-
+    // Model built info removed from printing; will be handled in main.rs
     let tokenizer = args.tokenizer()?;
     let mut tos = TokenOutputStream::new(tokenizer);
     let prompt_str = args
@@ -222,7 +211,7 @@ pub fn run(args: ModelArgs) -> Result<()> {
         .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
 
     let prompt_str = format!("<|im_start|>user\n{prompt_str}<|im_end|>\n<|im_start|>assistant\n");
-    print!("formatted prompt: {prompt_str}");
+    // Prompt formatting info removed from printing; will be handled in main.rs
 
     let tokens = tos
         .tokenizer()
@@ -273,8 +262,7 @@ pub fn run(args: ModelArgs) -> Result<()> {
     all_tokens.push(next_token);
 
     if let Some(t) = tos.next_token(next_token)? {
-        print!("{t}");
-        std::io::stdout().flush()?;
+        // Token output will be collected
     }
 
     let eos_token = *tos.tokenizer().get_vocab(true).get("<|im_end|>").unwrap();
@@ -299,8 +287,8 @@ pub fn run(args: ModelArgs) -> Result<()> {
         next_token = logits_processor.sample(&logits)?;
         all_tokens.push(next_token);
         if let Some(t) = tos.next_token(next_token)? {
-            print!("{t}");
-            std::io::stdout().flush()?;
+            generated.push_str(&t);
+        }
         }
         sampled += 1;
         if next_token == eos_token {
@@ -309,20 +297,15 @@ pub fn run(args: ModelArgs) -> Result<()> {
     }
 
     if let Some(rest) = tos.decode_rest().map_err(candle::Error::msg)? {
-        print!("{rest}");
+        generated.push_str(&rest);
     }
 
-    std::io::stdout().flush()?;
     let dt = start_post_prompt.elapsed();
-    println!(
-        "\n\n{:4} prompt tokens processed: {:.2} token/s",
-        tokens.len(),
-        tokens.len() as f64 / prompt_dt.as_secs_f64(),
-    );
-    println!(
-        "{:4} tokens generated: {:.2} token/s",
-        sampled,
-        sampled as f64 / dt.as_secs_f64(),
-    );
-    Ok(())
+    Ok(RunOutput {
+        generated_text: generated,
+        prompt_tokens: tokens.len(),
+        generated_tokens: sampled,
+        prompt_token_per_sec: tokens.len() as f64 / prompt_dt.as_secs_f64(),
+        generated_token_per_sec: sampled as f64 / dt.as_secs_f64(),
+    })
 }
