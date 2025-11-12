@@ -1,6 +1,3 @@
 [workspace]
-members = [
-    "candle-qwen2-5-core",
-    "candle-qwen2-5-cli",
-]
-resolver = "2"
+members = ["candle-qwen2-5-core", "candle-qwen2-5-cli"]
+resolver = "3"
