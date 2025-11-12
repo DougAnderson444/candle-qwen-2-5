@@ -1,6 +1,6 @@
 # Qwen 2.5 using Candle
 
-Crates:
+Project contains the crates:
 
 - [core model code](./candle-qwen2-5-core/)
 - [cli](./candle-qwen2-5-cli/)
