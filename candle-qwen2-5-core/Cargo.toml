@@ -28,4 +28,3 @@ candle = { version = "0.9.1", package = "candle-core", features = [
 ] }
 candle-nn = { version = "0.9.1", features = ["accelerate"] }
 candle-transformers = { version = "0.9.1", features = ["accelerate"] }
-
