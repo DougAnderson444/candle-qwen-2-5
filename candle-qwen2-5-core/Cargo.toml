@@ -6,9 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1", features = ["backtrace"] }
 byteorder = "1.4.3"
-candle = { version = "0.9.1", package = "candle-core" }
-candle-nn = { version = "0.9.1" }
-candle-transformers = { version = "0.9.1" }
 hf-hub = "0.4.3"
 log = "0.4"
 num-traits = "0.2.15"
@@ -21,10 +18,20 @@ tokenizers = { version = "0.19.1", default-features = false, features = [
   "onig",
 ] }
 
-# features are mkl and "accelerate" depending on platform
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+candle = { version = "0.9.1", package = "candle-core", features = ["mkl"] }
+candle-nn = { version = "0.9.1", features = ["mkl"] }
+candle-transformers = { version = "0.9.1", features = ["mkl"] }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 candle = { version = "0.9.1", package = "candle-core", features = [
   "accelerate",
 ] }
 candle-nn = { version = "0.9.1", features = ["accelerate"] }
 candle-transformers = { version = "0.9.1", features = ["accelerate"] }
+
+# all other targets (including linux aarch64)
+[target.'cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), any(target_arch = "x86", target_arch = "x86_64"))))'.dependencies]
+candle = { version = "0.9.1", package = "candle-core" }
+candle-nn = { version = "0.9.1" }
+candle-transformers = { version = "0.9.1" }
