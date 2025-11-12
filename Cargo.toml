@@ -1,3 +1,3 @@
 [workspace]
-members = ["candle-qwen2-5-core", "candle-qwen2-5-cli"]
+members = ["app", "candle-qwen2-5-cli", "candle-qwen2-5-core"]
 resolver = "3"
