@@ -1,3 +1,4 @@
+//! A command line interface for the Qwen 2.5B models using the candle-qwen2-5-core library.
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use std::io::Write;
@@ -91,7 +92,8 @@ impl From<Which> for CoreWhich {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let _guard = if args.tracing {
         let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
@@ -117,7 +119,7 @@ fn main() -> Result<()> {
         which: args.which.into(),
     };
 
-    let mut model = Qwen2Model::new(&model_args)?;
+    let mut model = Qwen2Model::new(&model_args).await?;
 
     let prompt_str = args.prompt.unwrap_or_else(|| DEFAULT_PROMPT.to_string());
 

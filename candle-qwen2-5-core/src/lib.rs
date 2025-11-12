@@ -1,6 +1,6 @@
 //! Library which uses candle to load and run Qwen2.5 models in GGUF format.
 use anyhow::Result;
-use hf_hub::api::sync::Api;
+use hf_hub::api::tokio::Api;
 use tokenizers::Tokenizer;
 
 use candle::{quantized::gguf_file, Device, Tensor};
@@ -33,8 +33,28 @@ pub struct ModelArgs {
     pub which: Which,
 }
 
+impl Default for ModelArgs {
+    fn default() -> Self {
+        Self {
+            model: None,
+            sample_len: 1000,
+            tokenizer: None,
+            temperature: 0.0,
+            top_p: None,
+            top_k: None,
+            seed: 299792458,
+            tracing: false,
+            split_prompt: false,
+            cpu: false,
+            repeat_penalty: 1.1,
+            repeat_last_n: 64,
+            which: Which::W25_3b,
+        }
+    }
+}
+
 impl ModelArgs {
-    fn tokenizer(&self) -> Result<Tokenizer> {
+    async fn tokenizer(&self) -> Result<Tokenizer> {
         let tokenizer_path = match &self.tokenizer {
             Some(config) => std::path::PathBuf::from(config),
             None => {
@@ -46,13 +66,13 @@ impl ModelArgs {
                     Which::W25_7b => "Qwen/Qwen2.5-7B-Instruct",
                 };
                 let api = api.model(repo.to_string());
-                api.get("tokenizer.json")?
+                api.get("tokenizer.json").await?
             }
         };
         Tokenizer::from_file(tokenizer_path).map_err(anyhow::Error::msg)
     }
 
-    fn model(&self) -> Result<std::path::PathBuf> {
+    async fn model(&self) -> Result<std::path::PathBuf> {
         let model_path = match &self.model {
             Some(config) => std::path::PathBuf::from(config),
             None => {
@@ -75,7 +95,7 @@ impl ModelArgs {
                     ),
                 };
                 let api = Api::new()?;
-                api.model(repo.to_string()).get(filename)?
+                api.model(repo.to_string()).get(filename).await?
             }
         };
         Ok(model_path)
@@ -177,16 +197,16 @@ pub struct Qwen2Model {
 }
 
 impl Qwen2Model {
-    pub fn new(args: &ModelArgs) -> Result<Self> {
+    pub async fn new(args: &ModelArgs) -> Result<Self> {
         let device = device(args.cpu)?;
-        let model_path = args.model()?;
+        let model_path = args.model().await?;
         let mut file = std::fs::File::open(&model_path)?;
         let model = {
             let model = gguf_file::Content::read(&mut file).map_err(|e| e.with_path(model_path))?;
             Qwen2::from_gguf(model, &mut file, &device)?
         };
 
-        let tokenizer = args.tokenizer()?;
+        let tokenizer = args.tokenizer().await?;
         let logits_processor = {
             let temperature = args.temperature;
             let sampling = if temperature <= 0. {
@@ -222,6 +242,7 @@ impl Qwen2Model {
         sample_len: usize,
         mut callback: F,
     ) -> Result<GenerationStats> {
+        tracing::info!("Generating with sample_len={sample_len}");
         let mut tos = TokenOutputStream::new(self.tokenizer.clone());
         let prompt_str = format!("<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n");
 

@@ -104,7 +104,10 @@ dependencies = [
 name = "app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "candle-qwen2-5-core",
  "dioxus",
+ "tokio",
 ]
 
 [[package]]
@@ -494,6 +497,7 @@ dependencies = [
  "anyhow",
  "candle-qwen2-5-core",
  "clap",
+ "tokio",
  "tracing",
  "tracing-chrome",
  "tracing-subscriber",
@@ -516,6 +520,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokenizers",
+ "tracing",
 ]
 
 [[package]]
@@ -6048,6 +6053,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
