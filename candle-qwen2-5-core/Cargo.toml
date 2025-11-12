@@ -18,20 +18,15 @@ tokenizers = { version = "0.19.1", default-features = false, features = [
   "onig",
 ] }
 
-[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
-candle = { version = "0.9.1", package = "candle-core", features = ["mkl"] }
-candle-nn = { version = "0.9.1", features = ["mkl"] }
-candle-transformers = { version = "0.9.1", features = ["mkl"] }
-
-[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-candle = { version = "0.9.1", package = "candle-core", features = [
-  "accelerate",
-] }
-candle-nn = { version = "0.9.1", features = ["accelerate"] }
-candle-transformers = { version = "0.9.1", features = ["accelerate"] }
-
-# all other targets (including linux aarch64)
-[target.'cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), any(target_arch = "x86", target_arch = "x86_64"))))'.dependencies]
 candle = { version = "0.9.1", package = "candle-core" }
 candle-nn = { version = "0.9.1" }
 candle-transformers = { version = "0.9.1" }
+
+[features]
+default = []
+mkl = ["candle/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
+accelerate = [
+  "candle/accelerate",
+  "candle-nn/accelerate",
+  "candle-transformers/accelerate",
+]
