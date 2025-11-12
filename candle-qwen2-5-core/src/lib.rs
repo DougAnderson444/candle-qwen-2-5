@@ -1,16 +1,12 @@
 //! Library which uses candle to load and run Qwen2.5 models in GGUF format.
 use anyhow::Result;
 use hf_hub::api::sync::Api;
-use std::io::Write;
 use tokenizers::Tokenizer;
 
 use candle::{quantized::gguf_file, Device, Tensor};
 use candle_transformers::generation::{LogitsProcessor, Sampling};
 
 use candle_transformers::models::quantized_qwen2::ModelWeights as Qwen2;
-
-pub const DEFAULT_PROMPT: &str =
-    "Write a Rust function to calculate the factorial of a given number.";
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum Which {
