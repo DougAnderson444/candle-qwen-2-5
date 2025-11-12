@@ -176,19 +176,8 @@ pub fn device(cpu: bool) -> candle::Result<Device> {
 }
 
 pub fn run(args: ModelArgs) -> Result<()> {
-pub struct RunOutput {
-    pub generated_text: String,
-    pub prompt_tokens: usize,
-    pub generated_tokens: usize,
-    pub prompt_token_per_sec: f64,
-    pub generated_token_per_sec: f64,
-}
-
-                                         // Hardware and sampling info removed from printing; will be handled in main.rs
-
     let model_path = args.model()?;
     let mut file = std::fs::File::open(&model_path)?;
-    let start = std::time::Instant::now();
     let device = device(args.cpu)?;
 
     let mut model = {
@@ -199,10 +188,9 @@ pub struct RunOutput {
             total_size_in_bytes +=
                 elem_count * tensor.ggml_dtype.type_size() / tensor.ggml_dtype.block_size();
         }
-        // Model loading info removed from printing; will be handled in main.rs
         Qwen2::from_gguf(model, &mut file, &device)?
     };
-    // Model built info removed from printing; will be handled in main.rs
+
     let tokenizer = args.tokenizer()?;
     let mut tos = TokenOutputStream::new(tokenizer);
     let prompt_str = args
@@ -211,7 +199,6 @@ pub struct RunOutput {
         .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
 
     let prompt_str = format!("<|im_start|>user\n{prompt_str}<|im_end|>\n<|im_start|>assistant\n");
-    // Prompt formatting info removed from printing; will be handled in main.rs
 
     let tokens = tos
         .tokenizer()
@@ -262,7 +249,8 @@ pub struct RunOutput {
     all_tokens.push(next_token);
 
     if let Some(t) = tos.next_token(next_token)? {
-        // Token output will be collected
+        print!("{t}");
+        std::io::stdout().flush()?;
     }
 
     let eos_token = *tos.tokenizer().get_vocab(true).get("<|im_end|>").unwrap();
@@ -287,8 +275,8 @@ pub struct RunOutput {
         next_token = logits_processor.sample(&logits)?;
         all_tokens.push(next_token);
         if let Some(t) = tos.next_token(next_token)? {
-            generated.push_str(&t);
-        }
+            print!("{t}");
+            std::io::stdout().flush()?;
         }
         sampled += 1;
         if next_token == eos_token {
@@ -297,15 +285,20 @@ pub struct RunOutput {
     }
 
     if let Some(rest) = tos.decode_rest().map_err(candle::Error::msg)? {
-        generated.push_str(&rest);
+        print!("{rest}");
     }
 
+    std::io::stdout().flush()?;
     let dt = start_post_prompt.elapsed();
-    Ok(RunOutput {
-        generated_text: generated,
-        prompt_tokens: tokens.len(),
-        generated_tokens: sampled,
-        prompt_token_per_sec: tokens.len() as f64 / prompt_dt.as_secs_f64(),
-        generated_token_per_sec: sampled as f64 / dt.as_secs_f64(),
-    })
+    println!(
+        "\n\n{:4} prompt tokens processed: {:.2} token/s",
+        tokens.len(),
+        tokens.len() as f64 / prompt_dt.as_secs_f64(),
+    );
+    println!(
+        "{:4} tokens generated: {:.2} token/s",
+        sampled,
+        sampled as f64 / dt.as_secs_f64(),
+    );
+    Ok(())
 }

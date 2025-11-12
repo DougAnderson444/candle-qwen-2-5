@@ -116,17 +116,5 @@ fn main() -> Result<()> {
         which: args.which.into(),
     };
 
-    let output = run(model_args)?;
-    println!("{}", output.generated_text);
-    println!(
-        "\n\n{:4} prompt tokens processed: {:.2} token/s",
-        output.prompt_tokens,
-        output.prompt_token_per_sec
-    );
-    println!(
-        "{:4} tokens generated: {:.2} token/s",
-        output.generated_tokens,
-        output.generated_token_per_sec
-    );
-    Ok(())
+    run(model_args)
 }
