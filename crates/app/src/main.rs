@@ -12,7 +12,7 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 // Define the server address
-const SERVER_ADDR: &str = "http://localhost:3000";
+const SERVER_ADDR: &str = "http://localhost:42069";
 const API_ENDPOINT: &str = "/v1/chat/completions";
 
 // Structs for API communication (should match the server's)
@@ -73,7 +73,7 @@ fn App() -> Element {
         tracing::info!("API server not found. Spawning a new one...");
         // This assumes `api-server` has been built in release mode.
         // A more robust solution might check for the binary or build it.
-        let child = Command::new("./target/release/api-server")
+        let child = Command::new("../../target/release/api-server")
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn server: {}. Have you built it with 'just build-release -p api-server'?", e))?;
 
