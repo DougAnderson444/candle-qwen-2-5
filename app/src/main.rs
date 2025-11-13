@@ -1,5 +1,5 @@
 use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
-use dioxus::logger::tracing::{debug, error, info, warn, Level};
+use dioxus::logger::tracing::Level;
 use dioxus::prelude::*;
 
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,7 @@ fn App() -> Element {
             model: None,
             sample_len: 1000,
             tokenizer: None,
-            temperature: 0.8,
+            temperature: 0.0,
             top_p: None,
             top_k: None,
             seed: 299792458,
