@@ -1,2 +1,2 @@
 serve:
-  dx serve
+  dx serve --release
