@@ -123,9 +123,12 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "candle-qwen2-5-core",
  "dioxus",
  "dioxus-logger",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

@@ -7,9 +7,12 @@ edition = "2021"
 [dependencies]
 dioxus = { version = "0.7.1", features = [] }
 dioxus-logger = "0.7.1"
-candle-qwen2-5-core = { path = "../candle-qwen2-5-core" }
 tokio = { workspace = true, features = ["full"] }
-anyhow = "1"
+anyhow = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = { workspace = true }
 
 [features]
 default = ["desktop"]

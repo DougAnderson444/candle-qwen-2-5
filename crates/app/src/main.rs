@@ -1,61 +1,102 @@
-use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
-use dioxus::logger::tracing::Level;
+//! This is the main application that launches a Dioxus-based web UI
+use dioxus::logger::tracing::{self, Level};
 use dioxus::prelude::*;
-
-use std::sync::{Arc, Mutex};
-use std::thread;
+use futures_util::StreamExt;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::process::{Child, Command};
+use std::time::Duration;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+
+// Define the server address
+const SERVER_ADDR: &str = "http://localhost:3000";
+const API_ENDPOINT: &str = "/v1/chat/completions";
+
+// Structs for API communication (should match the server's)
+#[derive(Serialize, Debug)]
+struct ChatCompletionRequest {
+    messages: Vec<ChatMessage>,
+    stream: bool,
+    max_tokens: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ChatCompletionChunk {
+    choices: Vec<ChunkChoice>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ChunkChoice {
+    delta: ChatMessage,
+}
 
 fn main() {
     dioxus::logger::init(Level::INFO).expect("failed to init logger");
     dioxus::launch(App);
 }
 
+/// A resource that holds the server process child, ensuring it's terminated on drop.
+struct ServerProcess(Child);
+
+impl Drop for ServerProcess {
+    fn drop(&mut self) {
+        tracing::info!("Shutting down API server...");
+        if let Err(e) = self.0.kill() {
+            tracing::error!("Failed to kill server process: {}", e);
+        }
+    }
+}
+
 #[component]
 fn App() -> Element {
     let mut prompt = use_signal(|| "Q: What is 2 + 2?\nA:".to_string());
     let mut output = use_signal(String::new);
+    let mut is_generating = use_signal(|| false);
 
-    // Use `use_resource` to load the model once when the component mounts.
-    let model_resource = use_resource(move || async move {
-        let model_args = ModelArgs {
-            model: None,
-            sample_len: 1000,
-            tokenizer: None,
-            temperature: 0.0,
-            top_p: None,
-            top_k: None,
-            seed: 299792458,
-            tracing: false,
-            split_prompt: false,
-            cpu: false,
-            repeat_penalty: 1.1,
-            repeat_last_n: 64,
-            which: Which::W25_3b,
-        };
-        // Directly await the new async `new` function.
-        let model = Qwen2Model::new(&model_args).await?;
-        // Wrap the model in Arc<Mutex<>> for thread-safe sharing and interior mutability.
-        Ok::<_, anyhow::Error>(Arc::new(Mutex::new(model)))
+    // This resource manages the API server's lifecycle.
+    let server_status = use_resource(move || async move {
+        tracing::info!("Checking for API server...");
+        if reqwest::get(SERVER_ADDR).await.is_ok() {
+            tracing::info!("API server is already running.");
+            return Ok::<_, anyhow::Error>(None);
+        }
+
+        tracing::info!("API server not found. Spawning a new one...");
+        // This assumes `api-server` has been built in release mode.
+        // A more robust solution might check for the binary or build it.
+        let child = Command::new("./target/release/api-server")
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("Failed to spawn server: {}. Have you built it with 'just build-release -p api-server'?", e))?;
+
+        // Wait a moment for the server to start up.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        // Final check to ensure it started.
+        reqwest::get(SERVER_ADDR).await?;
+        tracing::info!("API server started successfully.");
+
+        Ok(Some(ServerProcess(child)))
     });
 
-    // Render the UI based on the state of the model resource.
-    match &*model_resource.value().read() {
-        // State: Model is loaded and ready.
-        Some(Ok(model)) => {
-            let model = model.clone();
-            let mut is_generating = use_signal(|| false);
-
+    match &*server_status.value().read() {
+        Some(Ok(_)) => {
             rsx! {
                 document::Link { rel: "icon", href: FAVICON }
                 document::Link { rel: "stylesheet", href: MAIN_CSS }
                 document::Link { rel: "stylesheet", href: TAILWIND_CSS }
                 div {
                     class: "container",
-                    h1 { "Qwen2-5 Model Demo" }
+                    h1 { "Qwen2-5 Model Demo (API)" }
+                    p { "The release-optimized API server is running in the background." }
                     textarea {
                         value: prompt.read().clone(),
                         oninput: move |e| *prompt.write() = e.value(),
@@ -68,35 +109,56 @@ fn App() -> Element {
                             is_generating.set(true);
                             output.set("Generating...".to_string());
                             let prompt_val = prompt.read().clone();
-                            let model_clone = model.clone();
 
-                            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-                            // Spawn a Dioxus task to receive tokens and update the UI.
                             spawn(async move {
-                                let mut first = true;
-                                while let Some(token) = rx.recv().await {
-                                    if first {
-                                        output.set(token);
-                                        first = false;
-                                    } else {
-                                        output.with_mut(|out| out.push_str(&token));
+                                let client = Client::new();
+                                let req = ChatCompletionRequest {
+                                    messages: vec![ChatMessage {
+                                        role: "user".to_string(),
+                                        content: prompt_val,
+                                    }],
+                                    stream: true,
+                                    max_tokens: 1000,
+                                };
+
+                                let mut first_token = true;
+                                match client.post(format!("{}{}", SERVER_ADDR, API_ENDPOINT)).json(&req).send().await {
+                                    Ok(res) => {
+                                        let mut stream = res.bytes_stream();
+                                        while let Some(item) = stream.next().await {
+                                            match item {
+                                                Ok(bytes) => {
+                                                    let s = String::from_utf8_lossy(&bytes);
+                                                    for line in s.lines().filter(|l| l.starts_with("data:")) {
+                                                        let data = &line["data: ".len()..];
+                                                        if data.trim() == "[DONE]" {
+                                                            break;
+                                                        }
+                                                        if let Ok(chunk) = serde_json::from_str::<ChatCompletionChunk>(data) {
+                                                            if let Some(choice) = chunk.choices.first() {
+                                                                let token = &choice.delta.content;
+                                                                if first_token {
+                                                                    output.set(token.clone());
+                                                                    first_token = false;
+                                                                } else {
+                                                                    output.with_mut(|out| out.push_str(token));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    output.set(format!("Error receiving stream: {}", e));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        output.set(format!("Failed to send request: {}", e));
                                     }
                                 }
                                 is_generating.set(false);
-                            });
-
-                            // Spawn a thread for the blocking generation task.
-                            // The `generate` method itself is still synchronous.
-                            thread::spawn(move || {
-                                // Lock the mutex to get mutable access to the model.
-                                let mut model_guard = model_clone.lock().unwrap();
-                                if let Err(e) = model_guard.generate(&prompt_val, 1000, |token| {
-                                    let _ = tx.send(token.to_string());
-                                    Ok(())
-                                }) {
-                                    let _ = tx.send(format!("Generation error: {e}"));
-                                }
                             });
                         },
                         disabled: is_generating(),
@@ -111,7 +173,6 @@ fn App() -> Element {
                 }
             }
         }
-        // State: An error occurred while loading the model.
         Some(Err(e)) => {
             let error_message = e.to_string();
             rsx! {
@@ -120,13 +181,12 @@ fn App() -> Element {
                 document::Link { rel: "stylesheet", href: TAILWIND_CSS }
                 div {
                     class: "container",
-                    h1 { "Error loading model" }
+                    h1 { "Error starting API server" }
                     p { "The following error occurred:" }
                     pre { "{error_message}" }
                 }
             }
         }
-        // State: Model is still loading.
         None => {
             rsx! {
                 document::Link { rel: "icon", href: FAVICON }
@@ -134,10 +194,11 @@ fn App() -> Element {
                 document::Link { rel: "stylesheet", href: TAILWIND_CSS }
                 div {
                     class: "container",
-                    h1 { "Loading model..." }
-                    p { "Please wait, this may take a moment on the first run." }
+                    h1 { "Starting API server..." }
+                    p { "Please wait, this may take a moment." }
                 }
             }
         }
     }
 }
+

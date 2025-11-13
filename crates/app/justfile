@@ -1,2 +1,3 @@
 serve:
-  dx serve --release
+  cargo build --release --workspace
+  dx serve
