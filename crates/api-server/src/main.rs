@@ -55,7 +55,7 @@ struct Args {
     tokenizer: Option<String>,
 
     /// The temperature used to generate samples.
-    #[arg(long, default_value_t = 0.8)]
+    #[arg(long, default_value_t = 0.0)]
     temperature: f64,
 
     /// Nucleus sampling probability cutoff.
@@ -83,7 +83,7 @@ struct Args {
     repeat_last_n: usize,
 
     /// The model size to use.
-    #[arg(long, default_value = "0.5b")]
+    #[arg(long, default_value = "3b")]
     which: Which,
 
     /// Port to listen on.
@@ -310,4 +310,3 @@ async fn chat_completions_handler(
         (StatusCode::OK, Json(response)).into_response()
     }
 }
-

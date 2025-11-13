@@ -12,7 +12,8 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 // Define the server address
-const SERVER_ADDR: &str = "http://localhost:42069";
+const PORT: u16 = 42070;
+const SERVER_ADDR: &str = "http://localhost";
 const API_ENDPOINT: &str = "/v1/chat/completions";
 
 // Structs for API communication (should match the server's)
@@ -64,8 +65,9 @@ fn App() -> Element {
 
     // This resource manages the API server's lifecycle.
     let server_status = use_resource(move || async move {
+        let server_addr = format!("{}:{}", SERVER_ADDR, PORT);
         tracing::info!("Checking for API server...");
-        if reqwest::get(SERVER_ADDR).await.is_ok() {
+        if reqwest::get(&server_addr).await.is_ok() {
             tracing::info!("API server is already running.");
             return Ok::<_, anyhow::Error>(None);
         }
@@ -74,6 +76,9 @@ fn App() -> Element {
         // This assumes `api-server` has been built in release mode.
         // A more robust solution might check for the binary or build it.
         let child = Command::new("../../target/release/api-server")
+            // pass the port 
+            .arg("--port")
+            .arg(PORT.to_string())
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn server: {}. Have you built it with 'just build-release -p api-server'?", e))?;
 
@@ -81,7 +86,7 @@ fn App() -> Element {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Final check to ensure it started.
-        reqwest::get(SERVER_ADDR).await?;
+        reqwest::get(server_addr).await?;
         tracing::info!("API server started successfully.");
 
         Ok(Some(ServerProcess(child)))
@@ -122,7 +127,7 @@ fn App() -> Element {
                                 };
 
                                 let mut first_token = true;
-                                match client.post(format!("{}{}", SERVER_ADDR, API_ENDPOINT)).json(&req).send().await {
+                                match client.post(format!("{}:{}{}", SERVER_ADDR, PORT, API_ENDPOINT)).json(&req).send().await {
                                     Ok(res) => {
                                         let mut stream = res.bytes_stream();
                                         while let Some(item) = stream.next().await {
