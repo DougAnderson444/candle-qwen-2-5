@@ -107,6 +107,7 @@ dependencies = [
  "anyhow",
  "candle-qwen2-5-core",
  "dioxus",
+ "dioxus-logger",
  "tokio",
 ]
 

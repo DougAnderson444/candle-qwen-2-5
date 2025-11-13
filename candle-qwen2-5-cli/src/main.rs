@@ -79,6 +79,10 @@ struct Args {
     /// The model size to use.
     #[arg(long, default_value = "0.5b")]
     which: Which,
+
+    /// Log level (error, warn, info, debug, trace)
+    #[arg(long, default_value = "info")]
+    log_level: String,
 }
 
 impl From<Which> for CoreWhich {
@@ -95,6 +99,19 @@ impl From<Which> for CoreWhich {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    if !args.tracing {
+        let level = match args.log_level.to_lowercase().as_str() {
+            "error" => tracing::Level::ERROR,
+            "warn" => tracing::Level::WARN,
+            "info" => tracing::Level::INFO,
+            "debug" => tracing::Level::DEBUG,
+            "trace" => tracing::Level::TRACE,
+            _ => tracing::Level::INFO,
+        };
+        tracing_subscriber::fmt().with_max_level(level).init();
+    }
+
     let _guard = if args.tracing {
         let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
         tracing_subscriber::registry().with(chrome_layer).init();
@@ -102,6 +119,8 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+
+    tracing::info!("Starting Qwen2 CLI with model: {:?}", args.model);
 
     let model_args = ModelArgs {
         model: args.model,

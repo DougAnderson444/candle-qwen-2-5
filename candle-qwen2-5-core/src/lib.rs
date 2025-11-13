@@ -138,7 +138,7 @@ impl TokenOutputStream {
         };
         self.tokens.push(token);
         let text = self.decode(&self.tokens[self.prev_index..])?;
-        if text.len() > prev_text.len() && text.chars().last().unwrap().is_alphanumeric() {
+        if text.len() > prev_text.len() {
             let text = text.split_at(prev_text.len());
             self.prev_index = self.current_index;
             self.current_index = self.tokens.len();
@@ -246,6 +246,8 @@ impl Qwen2Model {
         let mut tos = TokenOutputStream::new(self.tokenizer.clone());
         let prompt_str = format!("<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n");
 
+        tracing::info!("Encoding prompt {prompt_str}");
+
         let tokens = self
             .tokenizer
             .encode(prompt_str.as_str(), true)
@@ -255,9 +257,16 @@ impl Qwen2Model {
 
         let to_sample = sample_len.saturating_sub(1);
 
+        tracing::info!("Prompt encoded to {} tokens", tokens.len());
+
         let mut all_tokens = vec![];
 
         let start_prompt_processing = std::time::Instant::now();
+
+        tracing::info!(
+            "Time {:?}: Starting prompt processing",
+            start_prompt_processing.elapsed()
+        );
 
         let mut next_token = if !self.split_prompt {
             let input = Tensor::new(tokens, &self.device)?.unsqueeze(0)?;
@@ -275,11 +284,17 @@ impl Qwen2Model {
             next_token
         };
 
+        tracing::info!(
+            "Time {:?}: Finished prompt processing",
+            start_prompt_processing.elapsed()
+        );
+
         let prompt_dt = start_prompt_processing.elapsed();
 
         all_tokens.push(next_token);
 
         if let Some(t) = tos.next_token(next_token)? {
+            tracing::info!("Time {:?}: Sending first token after prompt", prompt_dt);
             callback(t)?;
         }
 

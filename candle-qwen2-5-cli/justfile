@@ -1,2 +1,2 @@
 run:
-  cargo run --release -- --which 3b --prompt "Hello, world!"
+  cargo run --release -- --which 3b --prompt "Q: What is 2 + 2?\nA:"

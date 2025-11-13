@@ -1,4 +1,5 @@
 use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
+use dioxus::logger::tracing::{debug, error, info, warn, Level};
 use dioxus::prelude::*;
 
 use std::sync::{Arc, Mutex};
@@ -9,6 +10,7 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 fn main() {
+    dioxus::logger::init(Level::INFO).expect("failed to init logger");
     dioxus::launch(App);
 }
 
