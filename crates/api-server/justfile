@@ -1,0 +1,22 @@
+# Default command
+default: run
+
+# Run the API server in debug mode
+run:
+    cargo run --release
+
+# Build the API server in debug mode
+build:
+    cargo build
+
+# Run the API server in release mode
+run-release:
+    cargo run --release
+
+# Build the API server in release mode
+build-release:
+    cargo build --release
+
+# Check the API server for errors
+check:
+    cargo check

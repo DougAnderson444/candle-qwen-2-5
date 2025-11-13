@@ -1,9 +1,19 @@
 [workspace]
-members = ["app", "candle-qwen2-5-cli", "candle-qwen2-5-core"]
-resolver = "3"
+members = ["crates/*"]
+resolver = "2"
 
 [workspace.dependencies]
-tokio = { version = "1" }
+anyhow = "1.0.86"
+axum = "0.7.5"
+clap = { version = "4.5.4", features = ["derive"] }
+futures-util = "0.3.30"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+tokio = { version = "1.37.0", features = ["full"] }
+tokio-stream = "0.1"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+uuid = { version = "1.8.0", features = ["v4"] }
 
 [profile]
 
@@ -16,3 +26,8 @@ inherits = "dev"
 
 [profile.android-dev]
 inherits = "dev"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
