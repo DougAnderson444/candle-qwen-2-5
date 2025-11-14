@@ -11,7 +11,7 @@ pub fn ChatView() -> Element {
     rsx! {
         div {
             class: "container",
-            h1 { "Qwen2-5 Model Demo (API)" }
+            h1 { "Qwen2-5 Model" }
             p { "The release-optimized API server is running in the background." }
             textarea {
                 value: prompt.read().clone(),
