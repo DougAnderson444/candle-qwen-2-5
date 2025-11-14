@@ -1,6 +1,5 @@
 use dioxus::logger::tracing;
 use futures_util::StreamExt;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 // API constants
@@ -34,14 +33,14 @@ struct ChunkChoice {
 
 #[derive(Clone)]
 pub struct ApiClient {
-    client: Client,
+    client: reqwest::Client,
     base_url: String,
 }
 
 impl ApiClient {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: reqwest::Client::new(),
             base_url: format!("{}:{}", SERVER_ADDR, PORT),
         }
     }
