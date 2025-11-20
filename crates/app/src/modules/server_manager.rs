@@ -35,11 +35,21 @@ impl Drop for ServerProcess {
             tracing::warn!(
                 "ServerProcess dropped without explicit shutdown - spawning cleanup task"
             );
-            // Spawn a task to kill the process since we can't await in Drop
-            tokio::spawn(async move {
-                if let Err(e) = child.kill().await {
-                    tracing::error!("Failed to kill server process: {}", e);
-                }
+            // spawn a thread that would outlives the main context which is shutting down
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    if let Err(e) = child.kill().await {
+                        tracing::error!("Failed to kill server process: {}", e);
+                    }
+                    // if let Err(e) = Command::new("pkill")
+                    //     .args(["-9", "api-server"])
+                    //     .output()
+                    //     .await
+                    // {
+                    //     tracing::error!("Failed to kill server process: {}", e);
+                    // }
+                });
             });
         }
     }
