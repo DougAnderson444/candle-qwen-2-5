@@ -18,6 +18,7 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // : Resource<Result<Option<ServerProcess>>>
     let server_status = server_manager::use_server_manager();
 
     rsx! {
@@ -50,3 +51,4 @@ fn App() -> Element {
         }
     }
 }
+
