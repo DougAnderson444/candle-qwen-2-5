@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
 // API constants
-pub const PORT: u16 = 42070;
+pub const PORT: u16 = 42069;
 const SERVER_ADDR: &str = "http://localhost";
 const API_ENDPOINT: &str = "/v1/chat/completions";
 
