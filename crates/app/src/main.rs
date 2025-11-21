@@ -1,3 +1,4 @@
+use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use dioxus::logger::tracing::Level;
 use dioxus::prelude::*;
 
@@ -12,12 +13,34 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 fn main() {
+    let menu = Menu::new();
+
+    let edit_menu = Submenu::new("Edit", true);
+
+    edit_menu
+        .append_items(&[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::select_all(None),
+            &MenuItem::with_id("switch-text", "Switch text", true, None),
+        ])
+        .unwrap();
+
+    menu.append(&edit_menu).unwrap();
+
+    let config = dioxus::desktop::Config::new().with_menu(menu);
+
     dioxus::logger::init(Level::INFO).expect("failed to init logger");
-    dioxus::launch(App);
+    LaunchBuilder::desktop().with_cfg(config).launch(App);
 }
 
 #[component]
 fn App() -> Element {
+    // : Resource<Result<Option<ServerProcess>>>
     let server_status = server_manager::use_server_manager();
 
     rsx! {
