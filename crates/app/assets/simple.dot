@@ -1,0 +1,6 @@
+digraph G {
+            A [label="Node A", shape=box, color=red];
+            A -> B;
+            B -> C;
+            C -> A;
+        }

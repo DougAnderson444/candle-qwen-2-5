@@ -1,9 +1,16 @@
 //! Component to render DOT graphs using Graphvizm and Dioxus
 mod render;
+use dioxus_logger::tracing;
 use render::{GraphvizSvg, SvgBuildConfig};
 
 use dioxus::prelude::*;
 use graphvizm::Graphvizm;
+
+// read kitchen_sink.dot from assets
+// const KITCHEN_SINK_DOT: Asset = asset!("/assets/kitchen_sink.dot");
+const KITCHEN_SINK_DOT: &str = include_str!("../../assets/kitchen_sink.dot");
+// const SIMPLE_DOT: Asset = asset!("/assets/simple.dot");
+const SIMPLE_DOT: &str = include_str!("../../assets/simple.dot");
 
 #[component]
 pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
@@ -49,13 +56,8 @@ pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
 #[component]
 pub fn GraphEditor() -> Element {
     let mut dot_input = use_signal(|| {
-        r#"digraph G {
-    A [label="Node A", shape=box, color=red];
-    A -> B;
-    B -> C;
-    C -> A;
-}"#
-        .to_string()
+        let kitchen = KITCHEN_SINK_DOT.to_string();
+        kitchen
     });
 
     rsx! {

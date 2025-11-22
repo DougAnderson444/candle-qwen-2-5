@@ -186,7 +186,7 @@ fn collect_attrs(node: Node) -> SvgAttrs {
 // ------------------------- Recursion -------------------------
 
 fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -> Option<Element> {
-    tracing::info!("Building node: {:?}", node.tag_name().name());
+    tracing::trace!("Building node: {:?}", node.tag_name().name());
     if node.is_text() {
         let t = node.text().unwrap_or_default();
         if t.trim().is_empty() {
