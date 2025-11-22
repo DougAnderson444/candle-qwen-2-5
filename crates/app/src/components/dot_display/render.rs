@@ -4,6 +4,7 @@
 //! Otherwise internal links are rendered as ordinary <a href="..."> elements.
 //!
 //! Unknown attributes are appended as CSS custom properties into `style` to avoid losing data.
+use std::borrow::Cow;
 
 use dioxus::prelude::*;
 use dioxus_logger::tracing;
@@ -28,6 +29,8 @@ pub struct SvgBuildConfig {
     pub map_internal_route: Option<fn(&str) -> Option<String>>,
     pub on_fragment_click: Option<fn(&str)>,
     pub on_title: Option<fn(&str)>,
+    /// Whether to strip the DOCTYPE (default: true). You can disable if you switch XML parser.
+    pub strip_doctype: bool,
 }
 
 impl PartialEq for SvgBuildConfig {
@@ -54,6 +57,7 @@ impl Default for SvgBuildConfig {
             map_internal_route: None,
             on_fragment_click: None,
             on_title: None,
+            strip_doctype: true,
         }
     }
 }
@@ -65,18 +69,29 @@ pub fn GraphvizSvg(svg_text: String, config: SvgBuildConfig) -> Element {
     // Try to get a Navigator without panicking; returns Option<&Navigator>
     let navigator = use_context::<Option<Navigator>>();
 
-    tracing::info!(
-        "Rendering Graphviz SVG with navigator: {:?}",
-        navigator.is_some()
-    );
+    // Prepare initial Cow (strip immediately if requested).
+    let mut cow: Cow<'_, str> = if config.strip_doctype {
+        strip_doctype(&svg_text)
+    } else {
+        Cow::Borrowed(svg_text.as_str())
+    };
 
-    let doc = match Document::parse(&svg_text) {
-        Ok(d) => d,
-        Err(err) => {
-            tracing::error!("SVG parse error: {}", err);
-            return rsx! {
-                svg { class: "graphviz-svg error", "SVG parse error: {err}" }
-            };
+    // Parse with optional single retry (if we did not strip initially).
+    let doc = loop {
+        match Document::parse(&cow) {
+            Ok(d) => break d,
+            Err(e) => {
+                // Retry only if we have not stripped yet and an explicit DOCTYPE exists.
+                let did_strip = !matches!(cow, Cow::Borrowed(_));
+                if !did_strip && svg_text.contains("<!DOCTYPE") {
+                    cow = strip_doctype(&svg_text);
+                    // continue loop with new cow
+                    continue;
+                } else {
+                    // We either already stripped or there's nothing more to do.
+                    return render_parse_error(e, did_strip || config.strip_doctype);
+                }
+            }
         }
     };
 
@@ -433,5 +448,56 @@ fn attribute_name(attr: roxmltree::Attribute) -> String {
     match (attr.namespace(), attr.name()) {
         (Some(ns), local) => format!("{ns}:{local}"),
         (None, local) => local.to_string(),
+    }
+}
+
+fn strip_doctype(raw: &str) -> std::borrow::Cow<'_, str> {
+    // Fast path: no DOCTYPE at all
+    if !raw.contains("<!DOCTYPE") {
+        return std::borrow::Cow::Borrowed(raw);
+    }
+
+    // We’ll build a new String only if we find at least one DOCTYPE.
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    let bytes = raw.as_bytes();
+    let mut removed_any = false;
+
+    while i < bytes.len() {
+        // Look for "<!DOCTYPE"
+        if bytes[i] == b'<' && raw[i..].starts_with("<!DOCTYPE") {
+            removed_any = true;
+            // Advance until we find a '>' or run out
+            i += "<!DOCTYPE".len();
+            while i < bytes.len() && bytes[i] != b'>' {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'>' {
+                i += 1; // skip '>'
+            }
+            // Skip any trailing whitespace/newlines immediately following the DOCTYPE (optional)
+            while i < bytes.len() && matches!(bytes[i], b'\n' | b'\r') {
+                i += 1;
+            }
+            // Continue loop without appending the removed DOCTYPE
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    if removed_any {
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(raw)
+    }
+}
+
+fn render_parse_error(err: roxmltree::Error, did_strip: bool) -> Element {
+    rsx! {
+        svg { class: "graphviz-svg error",
+            style: "padding:8px;font-family:monospace;font-size:12px;fill:#900;",
+            "SVG parse error (strip_doctype={did_strip}): {err}"
+        }
     }
 }

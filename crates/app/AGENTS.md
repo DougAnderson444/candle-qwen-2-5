@@ -132,7 +132,7 @@ A signal is a wrapper around a value that automatically tracks where it's read a
 
 The `use_signal` hook creates state that is local to a single component. You can call the signal like a function (e.g. `my_signal()`) to clone the value, or use `.read()` to get a reference. `.write()` gets a mutable reference to the value.
 
-Use `use_memo` to create a memoized value that recalculates when its dependencies change. Memos are useful for expensive calculations that you don't want to repeat unnecessarily.
+Use `use_memo` to create a memoized value that recalculates when its dependencies change. Memos are useful for expensive calculations that you don't want to repeat unnecessarily. use_memo is a reactive primitive that lets you derive state from any tracked value. It takes a closure that computes the new state and returns a tracked value that contains the current state of the memo. When a dependency of the memo changes, the memo will rerun, and a new value will be calculated.
 
 ```rust
 #[component]
@@ -154,6 +154,44 @@ fn Counter() -> Element {
 	}
 }
 ```
+
+### The use_hook primitive
+
+To store state in components, Dioxus provides the use_hook function. This makes it possible for bare Rust functions to store and load state without the use of an extra struct.
+
+When called in a component, the use_hook function will return a .clone() of the originally stored value:
+
+```rs
+#[component]
+fn DogView() -> Element {
+    let img_src = use_hook(|| "https://images.dog.ceo/breeds/pitbull/dog-3981540_1280.jpg");
+
+    // ..
+
+    rsx! {
+        div { id: "dogview",
+            img { src: "{img_src}" }
+        }
+        // ..
+    }
+}
+```
+
+All hooks in Dioxus are built on the use_hook primitive. While you might never directly use this primitive, it's good to know where all state eventually resides. The use_hook primitive is a function that takes an initializer and returns a .clone() of the value.
+
+```rust
+fn Simple() -> Element {
+    let count = use_hook(|| 123);
+    rsx! { "{count}" }
+}
+```
+
+Whenever use_hook is called, one of two things happens:
+
+if this use_hook has never been called before, the initializer is ran and a new slot is created
+otherwise, use_hook returns a clone of the current value in the slot.
+
+Hooks are good for state local to components. Global state should use the Context API.
 
 ## Context API
 

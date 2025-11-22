@@ -5,7 +5,7 @@ authors = ["Douglas Anderson <douganderson444@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-dioxus = { version = "0.7.1", features = [] }
+dioxus = { version = "0.7.1", features = ["router"] }
 dioxus-logger = "0.7.1"
 tokio = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
@@ -13,6 +13,8 @@ reqwest = { workspace = true, features = ["json", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 futures-util = { workspace = true }
+graphvizm = { path = "../../../../wasm/graphvizm/crates/graphvizm" }
+roxmltree = "0.21.1"
 
 [features]
 default = ["desktop"]
