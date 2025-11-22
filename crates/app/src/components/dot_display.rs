@@ -1,10 +1,8 @@
 //! Component to render DOT graphs using Graphvizm and Dioxus
 mod render;
-use dioxus_logger::tracing;
 use render::{GraphvizSvg, SvgBuildConfig};
 
 use dioxus::prelude::*;
-// Assuming your Graphvizm wrapper is available
 use graphvizm::Graphvizm;
 
 #[component]
@@ -21,21 +19,12 @@ pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
 
     let svg_build_config = SvgBuildConfig::default();
 
-    // tracing info! the svg
-    svg_result().map(|svg| {
-        tracing::info!("Generated SVG: {}", &svg);
-    });
-
     rsx! {
         div {
             class: "w-full h-full overflow-auto",
 
             match svg_result() {
                 Some(svg) => rsx! {
-                    // div {
-                    //     class: "flex justify-center items-center p-4",
-                    //     dangerous_inner_html: "{&svg}"
-                    // }
                     div {
                         class: "text-sm text-gray-600",
                         "Rendered with alt configuration:",
@@ -61,6 +50,7 @@ pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
 pub fn GraphEditor() -> Element {
     let mut dot_input = use_signal(|| {
         r#"digraph G {
+    A [label="Node A", shape=box, color=red];
     A -> B;
     B -> C;
     C -> A;
