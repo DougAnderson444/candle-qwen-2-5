@@ -1,16 +1,18 @@
 //! Graphviz SVG → Dioxus renderer (router-optional).
 //!
 //! Internal link interception only happens if a Navigator context is present (i.e. we are inside a Router).
-//! Otherwise internal links are rendered as ordinary <a href="..."> elements.
+//! External links use webview.load_url() for desktop navigation.
 //!
 //! Unknown attributes are appended as CSS custom properties into `style` to avoid losing data.
 use dioxus::prelude::*;
+use dioxus_logger::tracing;
 use dioxus_router::Navigator;
 use roxmltree::{Document, Node};
 use std::borrow::Cow;
 
 // Namespace constant for xlink
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
+const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
 
 // ------------------------- Link classification -------------------------
 
@@ -114,6 +116,7 @@ fn collect_attrs(node: Node) -> SvgAttrs {
         match (ns, local) {
             (Some(XLINK_NS), "href") => sa.xlink_href = Some(value),
             (Some(XLINK_NS), "title") => sa.xlink_title = Some(value),
+            (Some(XML_NS), "space") => sa.xml_space = Some(value),
 
             (None, "id") => sa.id = Some(value),
             (None, "class") => sa.class = Some(value),
@@ -127,7 +130,6 @@ fn collect_attrs(node: Node) -> SvgAttrs {
             (None, "font-family") => sa.font_family = Some(value),
             (None, "font-weight") => sa.font_weight = Some(value),
             (None, "text-anchor") => sa.text_anchor = Some(value),
-            (None, "xml:space") => sa.xml_space = Some(value),
 
             (None, "x") => sa.x = Some(value),
             (None, "y") => sa.y = Some(value),
@@ -266,8 +268,12 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
             svg {
                 id: attrs.id,
                 class: attrs.class,
+                width: attrs.width,
+                height: attrs.height,
                 view_box: attrs.view_box,
                 style: attrs.style,
+                "xmlns": "http://www.w3.org/2000/svg",
+                "xmlns:xlink": XLINK_NS,
                 for child in children { {child} }
             }
         },
@@ -431,12 +437,7 @@ fn build_anchor(
     }
 
     // Determine if a <title> child already exists
-    let has_title_child = children.iter().any(|el| {
-        // Cheap check by rendering to string would be heavy; instead rely on partial introspection:
-        // We can't introspect easily without pattern matching VNode; assume none for now.
-        // Provide a config knob if needed later.
-        false
-    });
+    let has_title_child = false; // Simplified for now
 
     // Optional tooltip <title> from xlink:title
     let tooltip_node = if !has_title_child {
@@ -450,16 +451,29 @@ fn build_anchor(
             let kind = (cfg.classify_link)(&href);
             match kind {
                 LinkKind::External(url) => {
+                    let url_owned = url.clone();
                     rsx! {
-                        a {
+                        g {
                             id: a.id,
                             class: a.class,
-                            href: "{url}",
-                            "xlink:href": a.xlink_href,
-                            "xlink:title": a.xlink_title,
-                            target: a.target.or(Some("_blank".into())),
-                            rel: a.rel.or(Some("noopener noreferrer".into())),
                             style: a.style,
+                            "data-link-type": "external",
+                            "data-href": "{url}",
+                            cursor: "pointer",
+                            onclick: move |evt| {
+                                evt.prevent_default();
+                                tracing::info!("External link clicked, navigating to {}", url_owned);
+                                #[cfg(feature = "desktop")]
+                                {
+                                    if let Err(e) = dioxus::desktop::use_window().webview.load_url(&url_owned) {
+                                        tracing::error!("Failed to navigate to {}: {}", url_owned, e);
+                                    }
+                                }
+                                #[cfg(not(feature = "desktop"))]
+                                {
+                                    tracing::warn!("Desktop navigation not available for URL: {}", url_owned);
+                                }
+                            },
                             { tooltip_node }
                             for child in children { {child} }
                         }
@@ -468,19 +482,22 @@ fn build_anchor(
                 LinkKind::Internal(route) => {
                     let route_owned = route.clone();
                     rsx! {
-                        a {
+                        g {
                             id: a.id,
                             class: a.class,
-                            href: "{route_owned}",
-                            "xlink:href": a.xlink_href,
-                            "xlink:title": a.xlink_title,
                             style: a.style,
+                            "data-link-type": "internal",
+                            "data-href": "{route}",
+                            cursor: "pointer",
                             onclick: {
                                 let navigator = navigator.cloned();
-                                    move |evt| {
+                                move |evt| {
+                                    evt.prevent_default();
                                     if let Some(nav) = navigator {
-                                        evt.prevent_default();
+                                        tracing::info!("Internal route navigation to {}", route_owned);
                                         nav.push(route_owned.as_str());
+                                    } else {
+                                        tracing::warn!("No router available for internal navigation to {}", route_owned);
                                     }
                                 }
                             },
@@ -493,14 +510,16 @@ fn build_anchor(
                     let id_owned = id.clone();
                     let cb = cfg.on_fragment_click;
                     rsx! {
-                        a {
+                        g {
                             id: a.id,
                             class: a.class,
-                            href: "#{id_owned}",
-                            "xlink:title": a.xlink_title,
                             style: a.style,
+                            "data-link-type": "fragment",
+                            "data-href": "#{id}",
+                            cursor: "pointer",
                             onclick: move |evt| {
                                 evt.prevent_default();
+                                tracing::info!("Fragment link clicked: #{}", id_owned);
                                 if let Some(f) = cb {
                                     f(&id_owned);
                                 }
@@ -512,12 +531,9 @@ fn build_anchor(
                 }
                 LinkKind::None => {
                     rsx! {
-                        a {
+                        g {
                             id: a.id,
                             class: a.class,
-                            href: href,
-                            "xlink:href": a.xlink_href,
-                            "xlink:title": a.xlink_title,
                             style: a.style,
                             { tooltip_node }
                             for child in children { {child} }
@@ -529,24 +545,14 @@ fn build_anchor(
         None => {
             // Tooltip only wrapper (cluster anchors sometimes)
             rsx! {
-                a {
+                g {
                     id: a.id,
                     class: a.class,
-                    "xlink:title": a.xlink_title,
                     style: a.style,
                     { tooltip_node }
                     for child in children { {child} }
                 }
             }
         }
-    }
-}
-
-// ------------------------- Utilities -------------------------
-
-fn attribute_name(attr: roxmltree::Attribute) -> String {
-    match (attr.namespace(), attr.name()) {
-        (Some(ns), local) => format!("{ns}:{local}"),
-        (None, local) => local.to_string(),
     }
 }
