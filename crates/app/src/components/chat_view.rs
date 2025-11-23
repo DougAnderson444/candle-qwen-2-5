@@ -48,7 +48,8 @@ pub fn ChatView() -> Element {
                 "Generate"
             }
             div {
-                style: "white-space: pre-wrap; margin-top: 1em;",
+                // scrollable output area
+                style: "white-space: pre-wrap; margin-top: 1em; max-height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px;",
                 "Output:"
                 br {}
                 "{output}"

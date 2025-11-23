@@ -1,20 +1,19 @@
-//! Graphviz SVG → Dioxus renderer (router-optional).
+//! Graphviz SVG → Dioxus renderer with optional "rough" hand-drawn styling.
 //!
-//! Internal link interception only happens if a Navigator context is present (i.e. we are inside a Router).
-//! External links use webview.load_url() for desktop navigation.
-//!
-//! Unknown attributes are appended as CSS custom properties into `style` to avoid losing data.
+//! When `rough` feature is enabled, shapes and paths can be converted to hand-drawn versions using `roughr`.
 use dioxus::prelude::*;
 use dioxus_logger::tracing;
 use dioxus_router::Navigator;
 use roxmltree::{Document, Node};
 use std::borrow::Cow;
+#[cfg(feature = "rough")]
+use std::fmt::Display;
 
-// Namespace constant for xlink
-const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
-const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
-
-// ------------------------- Link classification -------------------------
+#[cfg(feature = "rough")]
+use roughr::{
+    core::{FillStyle, OpSetType, Options, OptionsBuilder},
+    generator::Generator,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkKind {
@@ -23,6 +22,9 @@ pub enum LinkKind {
     Fragment(String),
     None,
 }
+
+const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
+const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
 
 // ------------------------- Config -------------------------
 
@@ -33,10 +35,41 @@ pub struct SvgBuildConfig {
     pub on_fragment_click: Option<fn(&str)>,
     pub on_title: Option<fn(&str)>,
     pub strip_doctype: bool,
+    pub rough_style: bool,
+    pub rough_options: RoughOptions,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct RoughOptions {
+    pub roughness: f32,
+    pub bowing: f32,
+    pub fill_style: RoughFillStyle,
+}
+
+#[derive(Clone, PartialEq)]
+pub enum RoughFillStyle {
+    Solid,
+    Hachure,
+    ZigZag,
+    CrossHatch,
+    Dots,
+    Dashed,
+    ZigZagLine,
+}
+
+impl Default for RoughOptions {
+    fn default() -> Self {
+        Self {
+            roughness: 1.0,
+            bowing: 1.0,
+            fill_style: RoughFillStyle::Hachure,
+        }
+    }
 }
 
 impl PartialEq for SvgBuildConfig {
     fn eq(&self, _other: &Self) -> bool {
+        // force re-render only on SVG text changes; config equality coarse-grained
         true
     }
 }
@@ -59,13 +92,15 @@ impl Default for SvgBuildConfig {
             on_fragment_click: None,
             on_title: None,
             strip_doctype: true,
+            rough_style: true,
+            rough_options: RoughOptions::default(),
         }
     }
 }
 
 // ------------------------- Attribute collection -------------------------
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct SvgAttrs {
     id: Option<String>,
     class: Option<String>,
@@ -96,13 +131,12 @@ struct SvgAttrs {
     points: Option<String>,
     view_box: Option<String>,
 
-    href: Option<String>,        // plain href
-    xlink_href: Option<String>,  // namespaced href
-    xlink_title: Option<String>, // tooltip
+    href: Option<String>,
+    xlink_href: Option<String>,
+    xlink_title: Option<String>,
     target: Option<String>,
     rel: Option<String>,
 
-    // For unknown attributes (debug)
     extra: Vec<(String, String)>,
 }
 
@@ -112,7 +146,6 @@ fn collect_attrs(node: Node) -> SvgAttrs {
         let ns = a.namespace();
         let local = a.name();
         let value = a.value().to_string();
-
         match (ns, local) {
             (Some(XLINK_NS), "href") => sa.xlink_href = Some(value),
             (Some(XLINK_NS), "title") => sa.xlink_title = Some(value),
@@ -151,7 +184,6 @@ fn collect_attrs(node: Node) -> SvgAttrs {
             (None, "rel") => sa.rel = Some(value),
 
             _ => {
-                // Preserve unknown for debugging (not converted into CSS semantics).
                 let key = match ns {
                     Some(ns_uri) => format!("{ns_uri}:{local}"),
                     None => local.to_string(),
@@ -163,7 +195,248 @@ fn collect_attrs(node: Node) -> SvgAttrs {
     sa
 }
 
-// ------------------------- Sanitization (DTD strip) -------------------------
+// ------------------------- Rough conversion core -------------------------
+
+#[cfg(feature = "rough")]
+fn map_fill_style(fs: &RoughFillStyle) -> FillStyle {
+    match fs {
+        RoughFillStyle::Solid => FillStyle::Solid,
+        RoughFillStyle::Hachure => FillStyle::Hachure,
+        RoughFillStyle::ZigZag => FillStyle::ZigZag,
+        RoughFillStyle::CrossHatch => FillStyle::CrossHatch,
+        RoughFillStyle::Dots => FillStyle::Dots,
+        RoughFillStyle::Dashed => FillStyle::Dashed,
+        RoughFillStyle::ZigZagLine => FillStyle::ZigZagLine,
+    }
+}
+
+#[cfg(feature = "rough")]
+fn parse_color_to_srgba(s: &str) -> Option<roughr::Srgba> {
+    // Accept #RRGGBB or #RRGGBBAA
+    let hex = s.trim();
+    let hex = hex.strip_prefix('#')?;
+    let (r, g, b, a) = match hex.len() {
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            (r, g, b, 255)
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            (r, g, b, a)
+        }
+        _ => return None,
+    };
+    Some(roughr::Srgba::from_components((
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    )))
+}
+
+#[cfg(feature = "rough")]
+fn build_rough_options_from_attrs(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Options> {
+    let mut builder = OptionsBuilder::default();
+    builder.roughness(cfg.rough_options.roughness);
+    builder.bowing(cfg.rough_options.bowing);
+    builder.fill_style(map_fill_style(&cfg.rough_options.fill_style));
+
+    if let Some(stroke) = attrs.stroke.as_ref().and_then(|s| parse_color_to_srgba(s)) {
+        builder.stroke(stroke);
+    }
+    if let Some(fill) = attrs.fill.as_ref().and_then(|s| parse_color_to_srgba(s)) {
+        builder.fill(fill);
+    }
+    if let Some(sw) = attrs
+        .stroke_width
+        .as_ref()
+        .and_then(|s| s.parse::<f32>().ok())
+    {
+        builder.stroke_width(sw);
+    }
+
+    // Optionally could parse stroke-dasharray into stroke_line_dash here.
+
+    builder.build().ok()
+}
+
+#[cfg(feature = "rough")]
+fn drawable_to_path_elements<F: num_traits::Float + euclid::Trig + Display>(
+    drawable: &roughr::core::Drawable<F>,
+    original_attrs: &SvgAttrs,
+) -> Vec<Element> {
+    let mut out = Vec::new();
+    for set in &drawable.sets {
+        // Build path 'd'
+        let mut d_buf = String::new();
+        for op in &set.ops {
+            use roughr::core::OpType;
+            match op.op {
+                OpType::Move => {
+                    if op.data.len() >= 2 {
+                        d_buf.push_str(&format!("M{},{} ", op.data[0], op.data[1]));
+                    }
+                }
+                OpType::LineTo => {
+                    if op.data.len() >= 2 {
+                        d_buf.push_str(&format!("L{},{} ", op.data[0], op.data[1]));
+                    }
+                }
+                OpType::BCurveTo => {
+                    if op.data.len() >= 6 {
+                        d_buf.push_str(&format!(
+                            "C{},{} {},{} {},{} ",
+                            op.data[0], op.data[1], op.data[2], op.data[3], op.data[4], op.data[5]
+                        ));
+                    }
+                }
+            }
+        }
+        let d_str = d_buf.trim().to_string();
+
+        // Decide fill/stroke based on op_set_type
+        match set.op_set_type {
+            OpSetType::Path => {
+                out.push(rsx! {
+                    path {
+                        id: original_attrs.id.clone(),
+                        class: original_attrs.class.clone(),
+                        d: d_str,
+                        stroke: original_attrs.stroke.clone(),
+                        "stroke-width": original_attrs.stroke_width.clone(),
+                        fill: "none",
+                        style: original_attrs.style.clone(),
+                        "data-rough-segment": "stroke"
+                    }
+                });
+            }
+            OpSetType::FillPath => {
+                out.push(rsx! {
+                    path {
+                        id: original_attrs.id.clone(),
+                        class: original_attrs.class.clone(),
+                        d: d_str,
+                        fill: original_attrs.fill.clone().unwrap_or_else(|| "none".into()),
+                        stroke: "none",
+                        style: original_attrs.style.clone(),
+                        "data-rough-segment": "fill"
+                    }
+                });
+            }
+            OpSetType::FillSketch => {
+                out.push(rsx! {
+                    path {
+                        id: original_attrs.id.clone(),
+                        class: original_attrs.class.clone(),
+                        d: d_str,
+                        stroke: original_attrs.stroke.clone().or_else(|| Some("#000".into())),
+                        "stroke-width": original_attrs.stroke_width.clone(),
+                        fill: "none",
+                        style: original_attrs.style.clone(),
+                        "data-rough-segment": "hatch"
+                    }
+                });
+            }
+        }
+    }
+    out
+}
+
+#[cfg(feature = "rough")]
+fn rough_path(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    let d = attrs.d.as_ref()?;
+    let options = build_rough_options_from_attrs(attrs, cfg)?;
+    let gen = Generator::default();
+    // Path API signature: path(d, &Option<Options>)
+    let drawable = gen.path::<f32>(d.clone(), &Some(options));
+    Some(drawable_to_path_elements(&drawable, attrs))
+}
+
+#[cfg(feature = "rough")]
+fn rough_rect(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    let x = attrs.x.as_ref()?.parse::<f32>().ok()?;
+    let y = attrs.y.as_ref()?.parse::<f32>().ok()?;
+    let w = attrs.width.as_ref()?.parse::<f32>().ok()?;
+    let h = attrs.height.as_ref()?.parse::<f32>().ok()?;
+    let options = build_rough_options_from_attrs(attrs, cfg)?;
+    let gen = Generator::default();
+    let drawable = gen.rectangle::<f32>(x, y, w, h, &Some(options));
+    Some(drawable_to_path_elements(&drawable, attrs))
+}
+
+#[cfg(feature = "rough")]
+fn rough_circle(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    let cx = attrs.cx.as_ref()?.parse::<f32>().ok()?;
+    let cy = attrs.cy.as_ref()?.parse::<f32>().ok()?;
+    let r = attrs.r.as_ref()?.parse::<f32>().ok()?;
+    let diameter = r * 2.0;
+    let options = build_rough_options_from_attrs(attrs, cfg)?;
+    let gen = Generator::default();
+    let drawable = gen.circle::<f32>(cx, cy, diameter, &Some(options));
+    Some(drawable_to_path_elements(&drawable, attrs))
+}
+
+#[cfg(feature = "rough")]
+fn rough_ellipse(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    let cx = attrs.cx.as_ref()?.parse::<f32>().ok()?;
+    let cy = attrs.cy.as_ref()?.parse::<f32>().ok()?;
+    let rx = attrs.rx.as_ref()?.parse::<f32>().ok()?;
+    let ry = attrs.ry.as_ref()?.parse::<f32>().ok()?;
+    let options = build_rough_options_from_attrs(attrs, cfg)?;
+    let gen = Generator::default();
+    // ellipse expects width/height (diameters)
+    let drawable = gen.ellipse::<f32>(cx, cy, rx * 2.0, ry * 2.0, &Some(options));
+    Some(drawable_to_path_elements(&drawable, attrs))
+}
+
+#[cfg(feature = "rough")]
+fn rough_polygon(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    let pts_str = attrs.points.as_ref()?;
+    let mut points = Vec::new();
+    for pair in pts_str.split_whitespace() {
+        let (x, y) = pair.split_once(',')?;
+        let px = x.parse::<f32>().ok()?;
+        let py = y.parse::<f32>().ok()?;
+        points.push(roughr::Point2D::new(px, py));
+    }
+    if points.len() < 3 {
+        return None;
+    }
+    let options = build_rough_options_from_attrs(attrs, cfg)?;
+    let gen = Generator::default();
+    let drawable = gen.polygon::<f32>(&points, &Some(options));
+    Some(drawable_to_path_elements(&drawable, attrs))
+}
+
+// ------------------------- Non-rough fallback for path processing -------------------------
+
+#[cfg(not(feature = "rough"))]
+fn rough_path(_attrs: &SvgAttrs, _cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    None
+}
+#[cfg(not(feature = "rough"))]
+fn rough_rect(_attrs: &SvgAttrs, _cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    None
+}
+#[cfg(not(feature = "rough"))]
+fn rough_circle(_attrs: &SvgAttrs, _cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    None
+}
+#[cfg(not(feature = "rough"))]
+fn rough_ellipse(_attrs: &SvgAttrs, _cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    None
+}
+#[cfg(not(feature = "rough"))]
+fn rough_polygon(_attrs: &SvgAttrs, _cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
+    None
+}
+
+// ------------------------- DTD strip -------------------------
 
 fn strip_doctype(raw: &str) -> Cow<'_, str> {
     if !raw.contains("<!DOCTYPE") {
@@ -172,10 +445,8 @@ fn strip_doctype(raw: &str) -> Cow<'_, str> {
     let mut out = String::with_capacity(raw.len());
     let mut i = 0;
     let b = raw.as_bytes();
-    let mut removed = false;
     while i < b.len() {
         if b[i] == b'<' && raw[i..].starts_with("<!DOCTYPE") {
-            removed = true;
             i += "<!DOCTYPE".len();
             while i < b.len() && b[i] != b'>' {
                 i += 1;
@@ -191,14 +462,10 @@ fn strip_doctype(raw: &str) -> Cow<'_, str> {
             i += 1;
         }
     }
-    if removed {
-        Cow::Owned(out)
-    } else {
-        Cow::Borrowed(raw)
-    }
+    Cow::Owned(out)
 }
 
-// ------------------------- Top-level component -------------------------
+// ------------------------- Component -------------------------
 
 #[component]
 pub fn GraphvizSvg(svg_text: String, config: SvgBuildConfig) -> Element {
@@ -242,7 +509,7 @@ fn render_parse_error(err: roxmltree::Error, did_strip: bool) -> Element {
     }
 }
 
-// ------------------------- Recursion -------------------------
+// ------------------------- Recursive build -------------------------
 
 fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -> Option<Element> {
     if node.is_text() {
@@ -295,17 +562,16 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
                 dx: attrs.dx,
                 dy: attrs.dy,
                 fill: attrs.fill,
-                font_size: attrs.font_size,
-                font_family: attrs.font_family,
+                "font-size": attrs.font_size,
+                "font-family": attrs.font_family,
                 "font-weight": attrs.font_weight,
-                text_anchor: attrs.text_anchor,
+                "text-anchor": attrs.text_anchor,
                 "xml:space": attrs.xml_space,
                 style: attrs.style,
                 for child in children { {child} }
             }
         },
         "title" => {
-            // Pass through <title>
             if let Some(t) = node.text() {
                 if let Some(cb) = cfg.on_title {
                     cb(t);
@@ -315,66 +581,61 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
                 rsx! { title { for child in children { {child} } } }
             }
         }
-        "ellipse" => rsx! {
-            ellipse {
-                id: attrs.id,
-                class: attrs.class,
-                cx: attrs.cx,
-                cy: attrs.cy,
-                rx: attrs.rx,
-                ry: attrs.ry,
-                r: attrs.r,
-                fill: attrs.fill,
-                stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
-                "stroke-dasharray": attrs.stroke_dasharray,
-                style: attrs.style,
+        "path" => {
+            if cfg.rough_style {
+                if let Some(segments) = rough_path(&attrs, cfg) {
+                    rsx! { g { for seg in segments { {seg} } } }
+                } else {
+                    default_path(&attrs)
+                }
+            } else {
+                default_path(&attrs)
             }
-        },
-        "circle" => rsx! {
-            circle {
-                id: attrs.id,
-                class: attrs.class,
-                cx: attrs.cx,
-                cy: attrs.cy,
-                r: attrs.r,
-                fill: attrs.fill,
-                stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
-                "stroke-dasharray": attrs.stroke_dasharray,
-                style: attrs.style,
+        }
+        "rect" => {
+            if cfg.rough_style {
+                if let Some(segments) = rough_rect(&attrs, cfg) {
+                    rsx! { g { for seg in segments { {seg} } for child in children { {child} } } }
+                } else {
+                    default_rect(&attrs, &children)
+                }
+            } else {
+                default_rect(&attrs, &children)
             }
-        },
-        "rect" => rsx! {
-            rect {
-                id: attrs.id,
-                class: attrs.class,
-                x: attrs.x,
-                y: attrs.y,
-                width: attrs.width,
-                height: attrs.height,
-                rx: attrs.rx,
-                ry: attrs.ry,
-                fill: attrs.fill,
-                stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
-                "stroke-dasharray": attrs.stroke_dasharray,
-                style: attrs.style,
-                for child in children { {child} }
+        }
+        "circle" => {
+            if cfg.rough_style {
+                if let Some(segments) = rough_circle(&attrs, cfg) {
+                    rsx! { g { for seg in segments { {seg} } } }
+                } else {
+                    default_circle(&attrs)
+                }
+            } else {
+                default_circle(&attrs)
             }
-        },
-        "polygon" => rsx! {
-            polygon {
-                id: attrs.id,
-                class: attrs.class,
-                points: attrs.points,
-                fill: attrs.fill,
-                stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
-                "stroke-dasharray": attrs.stroke_dasharray,
-                style: attrs.style,
+        }
+        "ellipse" => {
+            if cfg.rough_style {
+                if let Some(segments) = rough_ellipse(&attrs, cfg) {
+                    rsx! { g { for seg in segments { {seg} } } }
+                } else {
+                    default_ellipse(&attrs)
+                }
+            } else {
+                default_ellipse(&attrs)
             }
-        },
+        }
+        "polygon" => {
+            if cfg.rough_style {
+                if let Some(segments) = rough_polygon(&attrs, cfg) {
+                    rsx! { g { for seg in segments { {seg} } } }
+                } else {
+                    default_polygon(&attrs)
+                }
+            } else {
+                default_polygon(&attrs)
+            }
+        }
         "polyline" => rsx! {
             polyline {
                 id: attrs.id,
@@ -382,26 +643,13 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
                 points: attrs.points,
                 fill: attrs.fill,
                 stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
-                "stroke-dasharray": attrs.stroke_dasharray,
-                style: attrs.style,
-            }
-        },
-        "path" => rsx! {
-            path {
-                id: attrs.id,
-                class: attrs.class,
-                d: attrs.d,
-                fill: attrs.fill,
-                stroke: attrs.stroke,
-                stroke_width: attrs.stroke_width,
+                "stroke-width": attrs.stroke_width,
                 "stroke-dasharray": attrs.stroke_dasharray,
                 style: attrs.style,
             }
         },
         "a" => build_anchor(attrs, children, cfg, navigator),
         _ => {
-            // Unknown tag -> wrap for debugging
             rsx! {
                 g {
                     id: attrs.id,
@@ -417,6 +665,94 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
     Some(el)
 }
 
+// ------------------------- Fallback element builders -------------------------
+
+fn default_path(attrs: &SvgAttrs) -> Element {
+    rsx! {
+        path {
+            id: attrs.id.clone(),
+            class: attrs.class.clone(),
+            d: attrs.d.clone(),
+            fill: attrs.fill.clone(),
+            stroke: attrs.stroke.clone(),
+            "stroke-width": attrs.stroke_width.clone(),
+            "stroke-dasharray": attrs.stroke_dasharray.clone(),
+            style: attrs.style.clone(),
+        }
+    }
+}
+
+fn default_rect(attrs: &SvgAttrs, children: &[Element]) -> Element {
+    rsx! {
+        rect {
+            id: attrs.id.clone(),
+            class: attrs.class.clone(),
+            x: attrs.x.clone(),
+            y: attrs.y.clone(),
+            width: attrs.width.clone(),
+            height: attrs.height.clone(),
+            rx: attrs.rx.clone(),
+            ry: attrs.ry.clone(),
+            fill: attrs.fill.clone(),
+            stroke: attrs.stroke.clone(),
+            "stroke-width": attrs.stroke_width.clone(),
+            "stroke-dasharray": attrs.stroke_dasharray.clone(),
+            style: attrs.style.clone(),
+            for child in children { {child.clone()} }
+        }
+    }
+}
+
+fn default_circle(attrs: &SvgAttrs) -> Element {
+    rsx! {
+        circle {
+            id: attrs.id.clone(),
+            class: attrs.class.clone(),
+            cx: attrs.cx.clone(),
+            cy: attrs.cy.clone(),
+            r: attrs.r.clone(),
+            fill: attrs.fill.clone(),
+            stroke: attrs.stroke.clone(),
+            "stroke-width": attrs.stroke_width.clone(),
+            "stroke-dasharray": attrs.stroke_dasharray.clone(),
+            style: attrs.style.clone(),
+        }
+    }
+}
+
+fn default_ellipse(attrs: &SvgAttrs) -> Element {
+    rsx! {
+        ellipse {
+            id: attrs.id.clone(),
+            class: attrs.class.clone(),
+            cx: attrs.cx.clone(),
+            cy: attrs.cy.clone(),
+            rx: attrs.rx.clone(),
+            ry: attrs.ry.clone(),
+            fill: attrs.fill.clone(),
+            stroke: attrs.stroke.clone(),
+            "stroke-width": attrs.stroke_width.clone(),
+            "stroke-dasharray": attrs.stroke_dasharray.clone(),
+            style: attrs.style.clone(),
+        }
+    }
+}
+
+fn default_polygon(attrs: &SvgAttrs) -> Element {
+    rsx! {
+        polygon {
+            id: attrs.id.clone(),
+            class: attrs.class.clone(),
+            points: attrs.points.clone(),
+            fill: attrs.fill.clone(),
+            stroke: attrs.stroke.clone(),
+            "stroke-width": attrs.stroke_width.clone(),
+            "stroke-dasharray": attrs.stroke_dasharray.clone(),
+            style: attrs.style.clone(),
+        }
+    }
+}
+
 // ------------------------- Anchor -------------------------
 
 fn build_anchor(
@@ -425,7 +761,6 @@ fn build_anchor(
     cfg: &SvgBuildConfig,
     navigator: Option<&Navigator>,
 ) -> Element {
-    // Effective hyperlink
     let mut effective_href = a.href.clone().or(a.xlink_href.clone());
 
     if let Some(mapper) = cfg.map_internal_route.as_ref() {
@@ -436,15 +771,7 @@ fn build_anchor(
         }
     }
 
-    // Determine if a <title> child already exists
-    let has_title_child = false; // Simplified for now
-
-    // Optional tooltip <title> from xlink:title
-    let tooltip_node = if !has_title_child {
-        a.xlink_title.as_ref().map(|t| rsx! { title { "{t}" } })
-    } else {
-        None
-    };
+    let tooltip_node = a.xlink_title.as_ref().map(|t| rsx! { title { "{t}" } });
 
     match effective_href {
         Some(href) => {
@@ -468,10 +795,6 @@ fn build_anchor(
                                     if let Err(e) = dioxus::desktop::use_window().webview.load_url(&url_owned) {
                                         tracing::error!("Failed to navigate to {}: {}", url_owned, e);
                                     }
-                                }
-                                #[cfg(not(feature = "desktop"))]
-                                {
-                                    tracing::warn!("Desktop navigation not available for URL: {}", url_owned);
                                 }
                             },
                             { tooltip_node }
@@ -543,7 +866,6 @@ fn build_anchor(
             }
         }
         None => {
-            // Tooltip only wrapper (cluster anchors sometimes)
             rsx! {
                 g {
                     id: a.id,
