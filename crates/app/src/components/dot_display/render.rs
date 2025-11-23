@@ -37,6 +37,8 @@ pub struct SvgBuildConfig {
     pub strip_doctype: bool,
     pub rough_style: bool,
     pub rough_options: RoughOptions,
+    pub rough_use_custom_font: bool,
+    pub rough_embed_font_data: Option<&'static str>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -94,6 +96,8 @@ impl Default for SvgBuildConfig {
             strip_doctype: true,
             rough_style: true,
             rough_options: RoughOptions::default(),
+            rough_use_custom_font: true,
+            rough_embed_font_data: None,
         }
     }
 }
@@ -530,20 +534,39 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
         .filter_map(|c| build_node(c, cfg, navigator))
         .collect();
 
+    let arch_daughter = r#"@import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&display=swap'); svg, text, tspan { font-family: 'Architects Daughter', 'Comic Sans MS', cursive, sans-serif; }"#;
+
+    let custom_style = if cfg.rough_style && cfg.rough_use_custom_font {
+        if let Some(css) = cfg.rough_embed_font_data {
+            // css should already contain @font-face
+            format!(
+                "{css}\nsvg, text, tspan {{ font-family: 'Architects Daughter', 'Comic Sans MS', cursive, sans-serif; }}"
+            )
+        } else {
+            // Fallback: external link (will not be self-contained)
+            arch_daughter.to_string()
+        }
+    } else {
+        String::new()
+    };
+
     let el = match tag {
-        "svg" => rsx! {
-            svg {
-                id: attrs.id,
-                class: attrs.class,
-                width: attrs.width,
-                height: attrs.height,
-                view_box: attrs.view_box,
-                style: attrs.style,
-                "xmlns": "http://www.w3.org/2000/svg",
-                "xmlns:xlink": XLINK_NS,
-                for child in children { {child} }
+        "svg" => {
+            rsx! {
+                svg {
+                    id: attrs.id,
+                    class: attrs.class,
+                    width: attrs.width,
+                    height: attrs.height,
+                    view_box: attrs.view_box,
+                    style: attrs.style,
+                    "xmlns": "http://www.w3.org/2000/svg",
+                    "xmlns:xlink": XLINK_NS,
+                    style { {custom_style} }
+                    for child in children { {child} }
+                }
             }
-        },
+        }
         "g" => rsx! {
             g {
                 id: attrs.id,
