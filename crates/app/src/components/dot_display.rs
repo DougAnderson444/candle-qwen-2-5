@@ -32,9 +32,13 @@ pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
 
             match svg_result() {
                 Some(svg) => rsx! {
+                    // Reference rendering
+                    // div {
+                    //     class: "mb-2 text-sm text-gray-600",
+                    //     dangerous_inner_html: {svg}
+                    // },
                     div {
-                        class: "text-sm text-gray-600",
-                        "Rendered with alt configuration:",
+                        class: "p-2",
                         GraphvizSvg {
                             svg_text: &svg,
                             config: svg_build_config
