@@ -1,3 +1,4 @@
+//! A graph library with named nodes built on petgraph's StableGraph.
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences as _};
@@ -222,10 +223,7 @@ mod tests {
         final_edges.sort(); // Sort for deterministic order in asserts and output
 
         assert_eq!(final_edges.len(), 2);
-        assert_eq!(
-            final_edges[0],
-            ("Alice".to_string(), "Bob".to_string(), 1)
-        );
+        assert_eq!(final_edges[0], ("Alice".to_string(), "Bob".to_string(), 1));
         assert_eq!(final_edges[1], ("Bob".to_string(), "Carol".to_string(), 1));
 
         let mut dot_output = String::new();
@@ -244,4 +242,3 @@ mod tests {
         assert_eq!(dot_output, expected_dot);
     }
 }
-
