@@ -5,7 +5,7 @@ use pest_derive::Parser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
-#[grammar = "dot.pest"]
+#[grammar = "do2.pest"]
 pub struct DotParser;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -68,7 +68,7 @@ fn span_to_line_range(dot: &str, start: usize, end: usize) -> (usize, usize) {
 pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
     let mut chunks = Vec::new();
 
-    let file = DotParser::parse(Rule::file, dot)
+    let file = DotParser::parse(Rule::dotfile, dot)
         .map_err(|e| format!("Parse error: {}", e))?
         .next()
         .ok_or("No parse tree")?;
@@ -81,18 +81,21 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 let (start_line, end_line) = span_to_line_range(dot, start, end);
 
                 let mut inner = pair.into_inner();
-                let id = inner.next().map(|p| p.as_str().to_string());
 
-                // Skip optional port
-                let mut next = inner.next();
-                if let Some(ref p) = next
-                    && p.as_rule() == Rule::port
-                {
-                    next = inner.next(); // Move to attr_list
-                }
+                // First element is node_id
+                let node_id = inner.next();
+                let id = node_id.as_ref().and_then(|p| {
+                    // node_id contains ident (and optional port)
+                    p.clone()
+                        .into_inner()
+                        .next()
+                        .map(|ident| ident.as_str().to_string())
+                });
 
-                let attrs = next.and_then(|p| {
+                // Next element (if present) is attr_list
+                let attrs = inner.next().and_then(|p| {
                     if p.as_rule() == Rule::attr_list {
+                        // Get the first a_list inside attr_list
                         p.into_inner().next().map(|a| a.as_str().to_string())
                     } else {
                         None
@@ -115,21 +118,60 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
 
                 let mut inner = pair.into_inner();
 
-                // First node
-                let from = inner.next().map(|p| p.as_str().to_string());
+                // First element is either subgraph or node_id
+                let from_pair = inner.next();
+                let from = from_pair.as_ref().map(|p| {
+                    match p.as_rule() {
+                        Rule::node_id => {
+                            // Extract ident from node_id
+                            p.clone()
+                                .into_inner()
+                                .next()
+                                .map(|ident| ident.as_str().to_string())
+                                .unwrap_or_else(|| p.as_str().to_string())
+                        }
+                        Rule::subgraph => {
+                            // For subgraph, try to get its identifier
+                            p.clone()
+                                .into_inner()
+                                .find(|inner| inner.as_rule() == Rule::ident)
+                                .map(|ident| ident.as_str().to_string())
+                                .unwrap_or_else(|| "(anonymous)".to_string())
+                        }
+                        _ => p.as_str().to_string(),
+                    }
+                });
 
-                // Collect all edge targets (could be chain: A -> B -> C)
+                // Collect all edge targets and attrs
                 let mut targets = Vec::new();
                 let mut attrs = None;
 
                 for p in inner {
                     match p.as_rule() {
                         Rule::edge_rhs => {
-                            // Extract target node from edge_rhs
+                            // edge_rhs contains (subgraph | node_id) followed by optional edge_rhs
                             for rhs_inner in p.into_inner() {
-                                if rhs_inner.as_rule() == Rule::ident {
-                                    targets.push(rhs_inner.as_str().to_string());
-                                    break;
+                                match rhs_inner.as_rule() {
+                                    Rule::node_id => {
+                                        // Extract ident from node_id
+                                        if let Some(ident) = rhs_inner.into_inner().next() {
+                                            targets.push(ident.as_str().to_string());
+                                        }
+                                    }
+                                    Rule::subgraph => {
+                                        // For subgraph, get identifier or use anonymous
+                                        let name = rhs_inner
+                                            .into_inner()
+                                            .find(|inner| inner.as_rule() == Rule::ident)
+                                            .map(|ident| ident.as_str().to_string())
+                                            .unwrap_or_else(|| "(anonymous)".to_string());
+                                        targets.push(name);
+                                    }
+                                    Rule::edge_rhs => {
+                                        // Don't process nested edge_rhs here, it will be processed in outer loop
+                                        break;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -168,7 +210,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 let (start, end) = (span.start(), span.end());
                 let (start_line, end_line) = span_to_line_range(dot, start, end);
 
-                // Try to find subgraph name
+                // Try to find subgraph name (ident after optional "subgraph" keyword)
                 let mut id = None;
                 for inner in pair.clone().into_inner() {
                     if inner.as_rule() == Rule::ident {
@@ -191,7 +233,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 }
             }
 
-            Rule::attr_assign => {
+            Rule::id_eq => {
                 let span = pair.as_span();
                 let (start, end) = (span.start(), span.end());
                 let (start_line, end_line) = span_to_line_range(dot, start, end);
@@ -201,7 +243,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 let value = inner.next().map(|p| p.as_str().to_string());
 
                 chunks.push(Chunk {
-                    kind: "attr_assign".to_string(),
+                    kind: "id_eq".to_string(),
                     id: key,
                     attrs: value,
                     range: (start_line, end_line),
@@ -209,17 +251,29 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 });
             }
 
-            Rule::bare_node => {
+            Rule::attr_stmt => {
                 let span = pair.as_span();
                 let (start, end) = (span.start(), span.end());
                 let (start_line, end_line) = span_to_line_range(dot, start, end);
 
-                let id = pair.into_inner().next().map(|p| p.as_str().to_string());
+                // attr_stmt is: (graph | node | edge) ~ attr_list
+                let mut inner = pair.into_inner();
+                let stmt_type = inner.next().map(|p| p.as_str().to_string());
+
+                // Collect all attributes from attr_list
+                let attrs = inner.next().and_then(|p| {
+                    if p.as_rule() == Rule::attr_list {
+                        // Get first a_list
+                        p.into_inner().next().map(|a| a.as_str().to_string())
+                    } else {
+                        None
+                    }
+                });
 
                 chunks.push(Chunk {
-                    kind: "bare_node".to_string(),
-                    id,
-                    attrs: None,
+                    kind: "attr_stmt".to_string(),
+                    id: stmt_type,
+                    attrs,
                     range: (start_line, end_line),
                     extra: None,
                 });
@@ -242,64 +296,135 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
 /// Note: This is a simplified reconstruction that won't perfectly preserve
 /// the original structure (subgraph nesting, comments, formatting), but will
 /// produce valid DOT that represents the same graph structure.
-pub fn chunks_to_dot(chunks: &[Chunk], graph_name: Option<&str>) -> String {
+pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
+    let mut output = String::new();
+    let mut indent_level: usize = 0;
+    let indent = "    ";
+
+    // Track if we're inside a subgraph to manage nesting
+    let mut subgraph_stack: Vec<(usize, usize)> = Vec::new(); // (start_line, end_line)
+
+    for chunk in chunks.iter() {
+        // Check if we need to close any subgraphs
+        while let Some(&(_, end_line)) = subgraph_stack.last() {
+            if chunk.range.0 > end_line {
+                indent_level = indent_level.saturating_sub(1);
+                output.push_str(&indent.repeat(indent_level));
+                output.push_str("}\n");
+                subgraph_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        let indent_str = indent.repeat(indent_level);
+
+        match chunk.kind.as_str() {
+            "node" => {
+                if let Some(ref id) = chunk.id {
+                    output.push_str(&indent_str);
+                    output.push_str(id);
+
+                    if let Some(ref attrs) = chunk.attrs {
+                        output.push_str(" [");
+                        output.push_str(attrs);
+                        output.push(']');
+                    }
+
+                    output.push_str(";\n");
+                }
+            }
+
+            "edge" => {
+                if let (Some(from), Some(to)) = (&chunk.id, &chunk.extra) {
+                    output.push_str(&indent_str);
+                    output.push_str(from);
+                    output.push_str(" -> ");
+                    output.push_str(to);
+
+                    if let Some(ref attrs) = chunk.attrs {
+                        output.push_str(" [");
+                        output.push_str(attrs);
+                        output.push(']');
+                    }
+
+                    output.push_str(";\n");
+                }
+            }
+
+            "subgraph" => {
+                output.push_str(&indent_str);
+
+                if let Some(ref id) = chunk.id {
+                    output.push_str("subgraph ");
+                    output.push_str(id);
+                    output.push_str(" {\n");
+                } else {
+                    // Anonymous subgraph
+                    output.push_str("{\n");
+                }
+
+                indent_level += 1;
+                subgraph_stack.push(chunk.range);
+            }
+
+            "id_eq" => {
+                if let (Some(key), Some(value)) = (&chunk.id, &chunk.attrs) {
+                    output.push_str(&indent_str);
+                    output.push_str(key);
+                    output.push_str(" = ");
+                    output.push_str(value);
+                    output.push_str(";\n");
+                }
+            }
+
+            "attr_stmt" => {
+                if let Some(ref stmt_type) = chunk.id {
+                    output.push_str(&indent_str);
+                    output.push_str(stmt_type); // "graph", "node", or "edge"
+
+                    if let Some(ref attrs) = chunk.attrs {
+                        output.push_str(" [");
+                        output.push_str(attrs);
+                        output.push(']');
+                    }
+
+                    output.push_str(";\n");
+                }
+            }
+
+            _ => {
+                // Unknown chunk type, skip or log warning
+                eprintln!("Warning: Unknown chunk type: {}", chunk.kind);
+            }
+        }
+    }
+
+    // Close any remaining open subgraphs
+    while subgraph_stack.pop().is_some() {
+        indent_level = indent_level.saturating_sub(1);
+        output.push_str(&indent.repeat(indent_level));
+        output.push_str("}\n");
+    }
+
+    output
+}
+
+// Helper function to wrap in digraph if needed
+pub fn chunks_to_complete_dot(chunks: &[Chunk], graph_name: Option<&str>) -> String {
     let mut output = String::new();
 
-    // Start graph
-    let name = graph_name.unwrap_or("G");
-    output.push_str(&format!("digraph {} {{\n", name));
-
-    // Track subgraph nesting (simplified - just track if we're in a subgraph)
-    let mut in_subgraph = false;
-    let mut subgraph_chunks: Vec<Chunk> = Vec::new();
-
-    for chunk in chunks {
-        match chunk.kind.as_str() {
-            "subgraph" => {
-                if in_subgraph {
-                    // Close previous subgraph
-                    for sg_chunk in &subgraph_chunks {
-                        output.push_str(&sg_chunk.to_dot());
-                        output.push('\n');
-                    }
-                    output.push_str("    }\n");
-                    subgraph_chunks.clear();
-                }
-
-                // Start new subgraph
-                if let Some(id) = &chunk.id {
-                    output.push_str(&format!("    subgraph {} {{\n", id));
-                } else {
-                    output.push_str("    subgraph {\n");
-                }
-                in_subgraph = true;
-            }
-            _ => {
-                if in_subgraph {
-                    // Collect chunks inside subgraph
-                    subgraph_chunks.push(chunk.clone());
-                } else {
-                    // Top-level chunk
-                    output.push_str(&chunk.to_dot());
-                    output.push('\n');
-                }
-            }
-        }
+    output.push_str("digraph ");
+    if let Some(name) = graph_name {
+        output.push('"');
+        output.push_str(name);
+        output.push('"');
     }
+    output.push_str(" {\n");
 
-    // Close any open subgraph
-    if in_subgraph {
-        for sg_chunk in &subgraph_chunks {
-            output.push_str("    ");
-            output.push_str(&sg_chunk.to_dot());
-            output.push('\n');
-        }
-        output.push_str("    }\n");
-    }
+    output.push_str(&chunks_to_dot(chunks));
 
-    // Close graph
     output.push_str("}\n");
-
     output
 }
 
@@ -372,7 +497,7 @@ mod tests {
 }"#;
 
         let chunks = parse_dot_to_chunks(dot).expect("Parse failed");
-        let reconstructed = chunks_to_dot(&chunks, Some("G"));
+        let reconstructed = chunks_to_complete_dot(&chunks, Some("G"));
 
         println!("Original:\n{}", dot);
         println!("\nReconstructed:\n{}", reconstructed);
@@ -392,7 +517,7 @@ mod tests {
 }"#;
 
         let chunks = parse_dot_to_chunks(dot).expect("Parse failed");
-        let reconstructed = chunks_to_dot(&chunks, Some("Test"));
+        let reconstructed = chunks_to_complete_dot(&chunks, Some("Test"));
 
         // Verify all nodes are present
         assert!(reconstructed.contains("node1"));

@@ -120,5 +120,3 @@ digraph "KitchenSink" {
     CenterNode -> StyleNode2 [label="center to multi"];
     RecNode -> CenterNode [color="#999999" style=dashed label="record to center"];
 }
-
-

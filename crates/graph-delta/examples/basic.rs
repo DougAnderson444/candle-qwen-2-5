@@ -10,7 +10,7 @@
 //
 // // Reconstruct DOT
 // let new_dot = chunks_to_dot(&chunks, Some("MyGraph"));
-use graph_delta::parser::{chunks_to_dot, parse_dot_to_chunks};
+use graph_delta::parser::{chunks_to_complete_dot, parse_dot_to_chunks};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dot_string = r#"
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Reconstruct DOT
-    let new_dot = chunks_to_dot(&chunks, Some("MyGraph"));
+    let new_dot = chunks_to_complete_dot(&chunks, Some("MyGraph"));
     println!("{}", new_dot);
 
     Ok(())
