@@ -1,0 +1,13 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" }
+ident = @{ (ASCII_ALPHANUMERIC | "_")+ }
+quoted_ident = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+graph_name = _{ ident | quoted_ident }
+attr_list = { "[" ~ (!"]" ~ ANY)* ~ "]" }
+node_stmt = { ident ~ attr_list ~ ";" }
+edge_stmt = { ident ~ "->" ~ ident ~ attr_list ~ ";" }
+anon_block = { "{" ~ stmt* ~ "}" }
+stmt = _{ node_stmt | edge_stmt | subgraph | anon_block | COMMENT | WHITESPACE }
+subgraph = { "subgraph" ~ graph_name? ~ "{" ~ stmt* ~ "}" }
+graph = { "digraph" ~ graph_name? ~ "{" ~ stmt* ~ "}" }
+file = { SOI ~ graph ~ (WHITESPACE | COMMENT)* ~ EOI }
