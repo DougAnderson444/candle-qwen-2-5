@@ -1,13 +1,24 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" }
-ident = @{ (ASCII_ALPHANUMERIC | "_")+ }
-quoted_ident = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
-graph_name = _{ ident | quoted_ident }
+ident = @{ (ASCII_ALPHANUMERIC | "_")+ | "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+port = { ":" ~ ident }
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+inline_comment = _{ "//" ~ (!NEWLINE ~ ANY)* }
+block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+DOT_COMMENT = _{ inline_comment | block_comment }
+attr_assign = { ident ~ "=" ~ ident ~ ";"? ~ DOT_COMMENT? }
+bare_node = { ident ~ ";"? ~ DOT_COMMENT? }
 attr_list = { "[" ~ (!"]" ~ ANY)* ~ "]" }
-node_stmt = { ident ~ attr_list ~ ";" }
-edge_stmt = { ident ~ "->" ~ ident ~ attr_list ~ ";" }
+node_stmt = { ident ~ port? ~ attr_list ~ ";"? ~ DOT_COMMENT? }
+edge_stmt = { ident ~ port? ~ "->" ~ ident ~ port? ~ attr_list ~ ";"? ~ DOT_COMMENT? }
 anon_block = { "{" ~ stmt* ~ "}" }
-stmt = _{ node_stmt | edge_stmt | subgraph | anon_block | COMMENT | WHITESPACE }
-subgraph = { "subgraph" ~ graph_name? ~ "{" ~ stmt* ~ "}" }
-graph = { "digraph" ~ graph_name? ~ "{" ~ stmt* ~ "}" }
-file = { SOI ~ graph ~ (WHITESPACE | COMMENT)* ~ EOI }
+stmt = _{ node_stmt | edge_stmt | subgraph | anon_block | attr_assign | bare_node | DOT_COMMENT | WHITESPACE }
+subgraph = { "subgraph" ~ ident? ~ "{" ~ stmt* ~ "}" }
+graph = { "digraph" ~ ident? ~ "{" ~ stmt* ~ "}" }
+file = { SOI ~ graph ~ (WHITESPACE | DOT_COMMENT)* ~ EOI }
+
+
+
+
+
+
