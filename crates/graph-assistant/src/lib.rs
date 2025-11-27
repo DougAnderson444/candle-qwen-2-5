@@ -234,9 +234,17 @@ where
         sorted_edges.sort();
 
         for (s, t, w) in &sorted_edges {
+            let edge_label = w.to_string();
+            let label_attr = if edge_label.trim().starts_with('<') && edge_label.trim().ends_with('>')
+            {
+                format!("label={}", edge_label)
+            } else {
+                format!("label=\"{}\"", edge_label)
+            };
+
             dot_output.push_str(&format!(
-                "    \"{}\" {} \"{}\" [label=\"{}\"];\n",
-                s, edge_op, t, w
+                "    \"{}\" {} \"{}\" [{}];\n",
+                s, edge_op, t, label_attr
             ));
         }
 
@@ -380,5 +388,34 @@ mod tests {
 
         let dot_output = ng.to_dot();
         assert!(dot_output.contains(r#"[label="MyLabel"]"#));
+    }
+
+    #[test]
+    fn parse_with_html_edge_label() {
+        let dot = r#"digraph { A -> B [label=<simple text>]; }"#;
+
+        let s_graph: StableGraph<DotNodeWeight, _> = ParseFromDot::try_from(dot).unwrap();
+
+        let extractor = |n: &DotNodeWeight| n.id.to_string().trim_matches('"').to_string();
+        let edge_mapper = |attrs: &petgraph::dot::dot_parser::DotAttrList| {
+            if let Some(attr) = attrs.elems.iter().find(|(k, _)| k == &"label") {
+                attr.1.to_string()
+            } else {
+                String::new()
+            }
+        };
+
+        let owned: StableGraph<String, String, _> =
+            convert_nodes_and_map_edges(s_graph, extractor, edge_mapper);
+
+        let ng = NamedGraph::<String, Directed>::from_owned_graph(owned);
+        let edges = ng.edges_with_names();
+        let html_label = &edges[0].2;
+
+        assert_eq!(html_label, "<simple text>");
+
+        let dot_output = ng.to_dot();
+        // Check that the output is label=<...> and not label="..."
+        assert!(dot_output.contains("[label=<simple text>]"));
     }
 }
