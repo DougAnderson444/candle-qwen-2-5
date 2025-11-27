@@ -125,7 +125,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                         Rule::node_id => {
                             // For node_id, preserve the entire string including port
                             // node_id = ident ~ port?
-                            p.as_str().to_string()
+                            p.as_str().trim().to_string()
                         }
                         Rule::subgraph => {
                             // For subgraph, try to get its identifier
@@ -135,7 +135,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                                 .map(|ident| ident.as_str().to_string())
                                 .unwrap_or_else(|| "(anonymous)".to_string())
                         }
-                        _ => p.as_str().to_string(),
+                        _ => p.as_str().trim().to_string(),
                     }
                 });
 
@@ -184,7 +184,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                         id: from.clone(),
                         attrs: attrs.clone(),
                         range: (start_line, end_line),
-                        extra: Some(to.clone()),
+                        extra: Some(to.trim().to_string()),
                     });
                 }
 
@@ -195,7 +195,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                         id: Some(targets[i - 1].clone()),
                         attrs: attrs.clone(),
                         range: (start_line, end_line),
-                        extra: Some(targets[i].clone()),
+                        extra: Some(targets[i].trim().to_string()),
                     });
                 }
             }
@@ -234,8 +234,8 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 let (start_line, end_line) = span_to_line_range(dot, start, end);
 
                 let mut inner = pair.into_inner();
-                let key = inner.next().map(|p| p.as_str().to_string());
-                let value = inner.next().map(|p| p.as_str().to_string());
+                let key = inner.next().map(|p| p.as_str().trim().to_string());
+                let value = inner.next().map(|p| p.as_str().trim().to_string());
 
                 chunks.push(Chunk {
                     kind: "id_eq".to_string(),
@@ -253,7 +253,7 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
 
                 // attr_stmt is: (graph | node | edge) ~ attr_list
                 let mut inner = pair.into_inner();
-                let stmt_type = inner.next().map(|p| p.as_str().to_string());
+                let stmt_type = inner.next().map(|p| p.as_str().trim().to_string());
 
                 // Collect all attributes from attr_list
                 let attrs = inner.next().and_then(|p| {
@@ -293,26 +293,61 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
 /// produce valid DOT that represents the same graph structure.
 pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
     let mut output = String::new();
-    let mut indent_level: usize = 0;
     let indent = "    ";
 
-    // Track if we're inside a subgraph to manage nesting
-    let mut subgraph_stack: Vec<(usize, usize)> = Vec::new(); // (start_line, end_line)
+    // Build nesting structure by analyzing line ranges
+    let mut nesting_levels: Vec<usize> = Vec::new();
 
-    for chunk in chunks.iter() {
-        // Check if we need to close any subgraphs
-        while let Some(&(_, end_line)) = subgraph_stack.last() {
-            if chunk.range.0 > end_line {
-                indent_level = indent_level.saturating_sub(1);
-                output.push_str(&indent.repeat(indent_level));
-                output.push_str("}\n");
-                subgraph_stack.pop();
-            } else {
-                break;
+    for (i, chunk) in chunks.iter().enumerate() {
+        // Determine nesting level based on which subgraphs contain this chunk
+        let mut level = 0;
+
+        // Count how many subgraphs this chunk is nested within
+        for (j, potential_parent) in chunks.iter().enumerate() {
+            if j >= i {
+                break; // Only look at earlier chunks
+            }
+
+            if potential_parent.kind == "subgraph" {
+                // Check if current chunk is within this subgraph's range
+                if chunk.range.0 > potential_parent.range.0
+                    && chunk.range.1 <= potential_parent.range.1
+                {
+                    level += 1;
+                }
             }
         }
 
-        let indent_str = indent.repeat(indent_level);
+        nesting_levels.push(level);
+    }
+
+    // Track currently open subgraphs to know when to close them
+    let mut open_subgraphs: Vec<(usize, usize)> = Vec::new(); // (index, end_line)
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let current_level = nesting_levels[i];
+
+        // Close subgraphs that should end before this chunk
+        let mut closed_count = 0;
+        open_subgraphs.retain(|(idx, end_line)| {
+            if chunk.range.0 > *end_line {
+                // This subgraph should be closed
+                let close_level = nesting_levels[*idx];
+                output.push_str(&indent.repeat(close_level));
+                output.push_str("}\n");
+                closed_count += 1;
+                false
+            } else {
+                true
+            }
+        });
+
+        // Add blank line after closing subgraphs for readability
+        if closed_count > 0 && chunk.kind != "subgraph" {
+            output.push('\n');
+        }
+
+        let indent_str = indent.repeat(current_level);
 
         match chunk.kind.as_str() {
             "node" => {
@@ -359,8 +394,8 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
                     output.push_str("{\n");
                 }
 
-                indent_level += 1;
-                subgraph_stack.push(chunk.range);
+                // Track this subgraph as open
+                open_subgraphs.push((i, chunk.range.1));
             }
 
             "id_eq" => {
@@ -396,9 +431,9 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
     }
 
     // Close any remaining open subgraphs
-    while subgraph_stack.pop().is_some() {
-        indent_level = indent_level.saturating_sub(1);
-        output.push_str(&indent.repeat(indent_level));
+    while let Some((idx, _)) = open_subgraphs.pop() {
+        let level = nesting_levels[idx];
+        output.push_str(&indent.repeat(level));
         output.push_str("}\n");
     }
 
