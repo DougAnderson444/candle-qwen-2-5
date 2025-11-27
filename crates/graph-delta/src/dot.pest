@@ -1,24 +1,60 @@
+// Whitespace and comments
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" }
-ident = @{ (ASCII_ALPHANUMERIC | "_")+ | "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
-port = { ":" ~ ident }
-WHITESPACE = _{ " " | "\t" | NEWLINE }
-inline_comment = _{ "//" ~ (!NEWLINE ~ ANY)* }
+inline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
 block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
-DOT_COMMENT = _{ inline_comment | block_comment }
-attr_assign = { ident ~ "=" ~ ident ~ ";"? ~ DOT_COMMENT? }
-bare_node = { ident ~ ";"? ~ DOT_COMMENT? }
-attr_list = { "[" ~ (!"]" ~ ANY)* ~ "]" }
-node_stmt = { ident ~ port? ~ attr_list ~ ";"? ~ DOT_COMMENT? }
-edge_stmt = { ident ~ port? ~ "->" ~ ident ~ port? ~ attr_list ~ ";"? ~ DOT_COMMENT? }
-anon_block = { "{" ~ stmt* ~ "}" }
-stmt = _{ node_stmt | edge_stmt | subgraph | anon_block | attr_assign | bare_node | DOT_COMMENT | WHITESPACE }
+COMMENT = _{ inline_comment | block_comment }
+
+// Identifiers - order matters! Try quoted first, then HTML, then plain
+ident = @{ 
+    ("\"" ~ (!"\"" ~ ANY)* ~ "\"") |
+    ("<" ~ (!">" ~ ANY)* ~ ">") |
+    ("-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)?) |
+    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+}
+
+// Port reference
+port = { ":" ~ ident ~ (":" ~ compass_pt)? }
+compass_pt = { "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw" | "c" | "_" }
+
+// Attribute list - capture raw content between brackets
+attr_list = { "[" ~ attr_list_content ~ "]" }
+attr_list_content = @{ (!"]" ~ ANY)* }
+
+// Node with optional attributes
+node_stmt = { ident ~ port? ~ attr_list ~ ";"? }
+
+// Edge statement
+edge_op = { "->" | "--" }
+edge_rhs = { edge_op ~ ident ~ port? }
+edge_stmt = { ident ~ port? ~ edge_rhs+ ~ attr_list? ~ ";"? }
+
+// Attribute assignment (graph/node/edge defaults)
+attr_stmt = { ("graph" | "node" | "edge") ~ attr_list ~ ";"? }
+attr_assign = { ident ~ "=" ~ ident ~ ";"? }
+
+// Subgraph
 subgraph = { "subgraph" ~ ident? ~ "{" ~ stmt* ~ "}" }
-graph = { "digraph" ~ ident? ~ "{" ~ stmt* ~ "}" }
-file = { SOI ~ graph ~ (WHITESPACE | DOT_COMMENT)* ~ EOI }
 
+// Anonymous block (rank constraints, etc.)
+anon_block = { "{" ~ stmt* ~ "}" }
 
+// Bare node (just ID, no attributes)
+bare_node = { ident ~ ";"? }
 
+// Statement types
+stmt = {
+    subgraph |
+    attr_stmt |
+    edge_stmt |
+    node_stmt |
+    attr_assign |
+    anon_block |
+    bare_node
+}
 
+// Graph definition
+graph_type = { "strict"? ~ ("graph" | "digraph") }
+graph = { graph_type ~ ident? ~ "{" ~ stmt* ~ "}" }
 
-
+// File entry point
+file = { SOI ~ graph ~ EOI }
