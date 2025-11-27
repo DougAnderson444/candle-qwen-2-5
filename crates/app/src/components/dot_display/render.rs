@@ -26,6 +26,9 @@ pub enum LinkKind {
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
 const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
 
+// Default opacity for hachure strokes when source color has no alpha
+const HATCH_DEFAULT_OPACITY: f32 = 0.95;
+
 // ------------------------- Config -------------------------
 
 #[derive(Clone)]
@@ -199,6 +202,48 @@ fn collect_attrs(node: Node) -> SvgAttrs {
     sa
 }
 
+// ------------------------- Color helpers for opacity -------------------------
+
+fn format_opacity(v: f32) -> String {
+    // Trim to at most 3 decimals and strip trailing zeros/dot.
+    let s = format!("{:.3}", v.clamp(0.0, 1.0));
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() {
+        "0".into()
+    } else {
+        s.into()
+    }
+}
+
+/// Normalize a color into (#RRGGBB, Some(opacity)) if it is #RRGGBBAA; pass through otherwise.
+/// Returns (normalized_color, optional_opacity_string).
+fn normalize_hex_color_with_opacity(input: &Option<String>) -> (Option<String>, Option<String>) {
+    let Some(raw) = input.as_ref() else {
+        return (None, None);
+    };
+    let s = raw.trim();
+    if !s.starts_with('#') {
+        return (Some(raw.clone()), None);
+    }
+    let hex = &s[1..];
+    match hex.len() {
+        6 => (Some(raw.clone()), None),
+        8 => {
+            if let (Ok(a), Ok(_)) = (
+                u8::from_str_radix(&hex[6..8], 16),
+                u32::from_str_radix(&hex[0..6], 16),
+            ) {
+                let rgb = format!("#{}", &hex[0..6]);
+                let op = (a as f32) / 255.0;
+                (Some(rgb), Some(format_opacity(op)))
+            } else {
+                (Some(raw.clone()), None)
+            }
+        }
+        _ => (Some(raw.clone()), None),
+    }
+}
+
 // ------------------------- Rough conversion core -------------------------
 
 #[cfg(feature = "rough")]
@@ -243,6 +288,14 @@ fn parse_color_to_srgba(s: &str) -> Option<roughr::Srgba> {
     )))
 }
 
+/// Attenuate the alpha channel of a color by a factor (0.0 to 1.0)
+#[cfg(feature = "rough")]
+fn attenuate_alpha(c: roughr::Srgba, factor: f32) -> roughr::Srgba {
+    let (r, g, b, a) = c.into_components();
+    roughr::Srgba::from_components((r, g, b, a * factor))
+}
+
+/// Build roughr::Options from SVG attributes and config
 #[cfg(feature = "rough")]
 fn build_rough_options_from_attrs(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Options> {
     let mut builder = OptionsBuilder::default();
@@ -253,7 +306,11 @@ fn build_rough_options_from_attrs(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Opt
     if let Some(stroke) = attrs.stroke.as_ref().and_then(|s| parse_color_to_srgba(s)) {
         builder.stroke(stroke);
     }
-    if let Some(fill) = attrs.fill.as_ref().and_then(|s| parse_color_to_srgba(s)) {
+    if let Some(mut fill) = attrs.fill.as_ref().and_then(|s| parse_color_to_srgba(s)) {
+        if cfg.rough_style {
+            // Slight attenuation to reduce visual density under text
+            fill = attenuate_alpha(fill, 0.8);
+        }
         builder.fill(fill);
     }
     if let Some(sw) = attrs
@@ -264,8 +321,6 @@ fn build_rough_options_from_attrs(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Opt
         builder.stroke_width(sw);
     }
 
-    // Optionally could parse stroke-dasharray into stroke_line_dash here.
-
     builder.build().ok()
 }
 
@@ -274,6 +329,24 @@ fn drawable_to_path_elements<F: num_traits::Float + euclid::Trig + Display>(
     drawable: &roughr::core::Drawable<F>,
     original_attrs: &SvgAttrs,
 ) -> Vec<Element> {
+    // Precompute normalized colors and opacities
+    let (fill_color_norm, fill_opacity_attr) =
+        normalize_hex_color_with_opacity(&original_attrs.fill);
+    let (stroke_color_norm, stroke_opacity_attr) =
+        normalize_hex_color_with_opacity(&original_attrs.stroke);
+
+    // Choose hatch color: prefer fill color (represents fill pattern); fallback to stroke; then black
+    let hatch_color = fill_color_norm
+        .clone()
+        .or_else(|| stroke_color_norm.clone())
+        .unwrap_or_else(|| "#000".to_string());
+
+    // Hatch opacity: prefer fill's alpha; fallback to default; allow stroke alpha if no fill alpha
+    let hatch_opacity = fill_opacity_attr
+        .clone()
+        .or_else(|| stroke_opacity_attr.clone())
+        .unwrap_or_else(|| format_opacity(HATCH_DEFAULT_OPACITY));
+
     let mut out = Vec::new();
     for set in &drawable.sets {
         // Build path 'd'
@@ -303,43 +376,50 @@ fn drawable_to_path_elements<F: num_traits::Float + euclid::Trig + Display>(
         }
         let d_str = d_buf.trim().to_string();
 
-        // Decide fill/stroke based on op_set_type
         match set.op_set_type {
             OpSetType::Path => {
+                // Outline stroke path
                 out.push(rsx! {
                     path {
                         id: original_attrs.id.clone(),
                         class: original_attrs.class.clone(),
                         d: d_str,
-                        stroke: original_attrs.stroke.clone(),
+                        stroke: stroke_color_norm.clone(),
                         "stroke-width": original_attrs.stroke_width.clone(),
                         fill: "none",
+                        // apply stroke-opacity if stroke color had alpha
+                        "stroke-opacity": stroke_opacity_attr.clone(),
                         style: original_attrs.style.clone(),
                         "data-rough-segment": "stroke"
                     }
                 });
             }
             OpSetType::FillPath => {
+                // Base fill area
                 out.push(rsx! {
                     path {
                         id: original_attrs.id.clone(),
                         class: original_attrs.class.clone(),
                         d: d_str,
-                        fill: original_attrs.fill.clone().unwrap_or_else(|| "none".into()),
+                        fill: fill_color_norm.clone().or_else(|| Some("none".into())),
                         stroke: "none",
+                        // apply fill-opacity if fill color had alpha
+                        "fill-opacity": fill_opacity_attr.clone(),
                         style: original_attrs.style.clone(),
                         "data-rough-segment": "fill"
                     }
                 });
             }
             OpSetType::FillSketch => {
+                // Hatching strokes — use stroke-opacity for legibility
                 out.push(rsx! {
                     path {
                         id: original_attrs.id.clone(),
                         class: original_attrs.class.clone(),
                         d: d_str,
-                        stroke: original_attrs.stroke.clone().or_else(|| Some("#000".into())),
+                        stroke: hatch_color.clone(),
                         "stroke-width": original_attrs.stroke_width.clone(),
+                        "stroke-opacity": hatch_opacity.clone(),
                         fill: "none",
                         style: original_attrs.style.clone(),
                         "data-rough-segment": "hatch"
@@ -356,7 +436,6 @@ fn rough_path(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>> {
     let d = attrs.d.as_ref()?;
     let options = build_rough_options_from_attrs(attrs, cfg)?;
     let gen = Generator::default();
-    // Path API signature: path(d, &Option<Options>)
     let drawable = gen.path::<f32>(d.clone(), &Some(options));
     Some(drawable_to_path_elements(&drawable, attrs))
 }
@@ -393,7 +472,6 @@ fn rough_ellipse(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Option<Vec<Element>>
     let ry = attrs.ry.as_ref()?.parse::<f32>().ok()?;
     let options = build_rough_options_from_attrs(attrs, cfg)?;
     let gen = Generator::default();
-    // ellipse expects width/height (diameters)
     let drawable = gen.ellipse::<f32>(cx, cy, rx * 2.0, ry * 2.0, &Some(options));
     Some(drawable_to_path_elements(&drawable, attrs))
 }
