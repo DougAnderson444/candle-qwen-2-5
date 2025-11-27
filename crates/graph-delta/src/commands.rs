@@ -63,6 +63,13 @@ pub enum DotCommand {
     },
 }
 
+impl std::fmt::Display for DotCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let json = serde_json::to_string_pretty(self).map_err(|_| std::fmt::Error)?;
+        write!(f, "{}", json)
+    }
+}
+
 pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<(), String> {
     match command {
         DotCommand::CreateNode { id, attrs } => {
