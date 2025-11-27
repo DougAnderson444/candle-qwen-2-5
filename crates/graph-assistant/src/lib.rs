@@ -4,6 +4,7 @@ use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences as _};
 use petgraph::{Directed, EdgeType, Graph, Undirected};
 use std::collections::HashMap;
+use std::fmt::Display;
 
 /// Convert any StableGraph<N, E, Ty> into a StableGraph<String, NewE, Ty>.
 /// The caller provides:
@@ -42,6 +43,7 @@ where
 pub struct NamedGraph<E, Ty: EdgeType = Undirected> {
     graph: StableGraph<String, E, Ty>,
     name_map: HashMap<String, NodeIndex>,
+    node_to_subgraph: HashMap<String, String>, // node name -> subgraph name
 }
 
 impl<E> NamedGraph<E, Undirected> {
@@ -49,6 +51,7 @@ impl<E> NamedGraph<E, Undirected> {
         Self {
             graph: Graph::new_undirected().into(),
             name_map: HashMap::new(),
+            node_to_subgraph: HashMap::new(),
         }
     }
 }
@@ -58,6 +61,7 @@ impl<E> NamedGraph<E, Directed> {
         Self {
             graph: StableGraph::new(),
             name_map: HashMap::new(),
+            node_to_subgraph: HashMap::new(),
         }
     }
 }
@@ -73,7 +77,11 @@ where
                 name_map.insert(name.clone(), idx);
             }
         }
-        Self { graph, name_map }
+        Self {
+            graph,
+            name_map,
+            node_to_subgraph: HashMap::new(),
+        }
     }
 
     pub fn graph(&self) -> &StableGraph<String, E, Ty> {
@@ -164,6 +172,77 @@ where
             false
         }
     }
+
+    pub fn set_node_subgraph(&mut self, node_name: &str, subgraph_name: impl Into<String>) {
+        if self.name_map.contains_key(node_name) {
+            self.node_to_subgraph
+                .insert(node_name.to_string(), subgraph_name.into());
+        }
+    }
+
+    pub fn to_dot(&self) -> String
+    where
+        E: Clone + Display,
+        (String, String, E): Ord,
+    {
+        let mut dot_output = String::new();
+        let graph_type = if self.graph.is_directed() {
+            "digraph"
+        } else {
+            "graph"
+        };
+        let edge_op = if self.graph.is_directed() { "->" } else { "--" };
+
+        dot_output.push_str(&format!("{} G {{\n", graph_type));
+
+        let mut subgraph_nodes: HashMap<String, Vec<String>> = HashMap::new();
+        let mut root_nodes: Vec<String> = Vec::new();
+
+        for node_name in self.graph.node_weights().cloned() {
+            if let Some(subgraph_name) = self.node_to_subgraph.get(&node_name) {
+                subgraph_nodes
+                    .entry(subgraph_name.clone())
+                    .or_default()
+                    .push(node_name);
+            } else {
+                root_nodes.push(node_name);
+            }
+        }
+        root_nodes.sort();
+
+        let mut subgraph_keys: Vec<_> = subgraph_nodes.keys().cloned().collect();
+        subgraph_keys.sort();
+
+        for (i, subgraph_name) in subgraph_keys.iter().enumerate() {
+            dot_output.push_str(&format!("    subgraph cluster_{} {{\n", i));
+            dot_output.push_str(&format!("        label = \"{}\";\n", subgraph_name));
+            if let Some(nodes) = subgraph_nodes.get(subgraph_name) {
+                let mut sorted_nodes = nodes.clone();
+                sorted_nodes.sort();
+                for node_name in &sorted_nodes {
+                    dot_output.push_str(&format!("        \"{}\";\n", node_name));
+                }
+            }
+            dot_output.push_str("    }\n");
+        }
+
+        for node_name in &root_nodes {
+            dot_output.push_str(&format!("    \"{}\";\n", node_name));
+        }
+
+        let mut sorted_edges = self.edges_with_names();
+        sorted_edges.sort();
+
+        for (s, t, w) in &sorted_edges {
+            dot_output.push_str(&format!(
+                "    \"{}\" {} \"{}\" [weight={}];\n",
+                s, edge_op, t, w
+            ));
+        }
+
+        dot_output.push_str("}\n");
+        dot_output
+    }
 }
 
 #[cfg(test)]
@@ -239,6 +318,41 @@ mod tests {
 }
 "#;
 
+        assert_eq!(dot_output, expected_dot);
+    }
+
+    #[test]
+    fn add_subgraph() {
+        let mut ng = NamedGraph::<i32, Directed>::new_directed();
+        ng.add_edge_by_name("A", "B", 1);
+        ng.add_edge_by_name("C", "D", 1);
+        ng.add_edge_by_name("A", "C", 2);
+
+        // Assign nodes to subgraphs
+        ng.set_node_subgraph("A", "Subgraph 1");
+        ng.set_node_subgraph("B", "Subgraph 1");
+        ng.set_node_subgraph("C", "Subgraph 2");
+        ng.set_node_subgraph("D", "Subgraph 2");
+
+        let dot_output = ng.to_dot();
+
+        // The to_dot method sorts keys to ensure deterministic output
+        let expected_dot = r#"digraph G {
+    subgraph cluster_0 {
+        label = "Subgraph 1";
+        "A";
+        "B";
+    }
+    subgraph cluster_1 {
+        label = "Subgraph 2";
+        "C";
+        "D";
+    }
+    "A" -> "B" [weight=1];
+    "A" -> "C" [weight=2];
+    "C" -> "D" [weight=1];
+}
+"#;
         assert_eq!(dot_output, expected_dot);
     }
 }
