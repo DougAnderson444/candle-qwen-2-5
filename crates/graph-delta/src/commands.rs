@@ -10,6 +10,9 @@ pub enum DotCommand {
         id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         attrs: Option<String>,
+        /// Parent subgraph name, None = top level
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     UpdateNode {
         id: String,
@@ -25,6 +28,9 @@ pub enum DotCommand {
         to: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         attrs: Option<String>,
+        /// Parent subgraph name, None = top level
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     UpdateEdge {
         from: String,
@@ -72,7 +78,7 @@ impl std::fmt::Display for DotCommand {
 
 pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<(), String> {
     match command {
-        DotCommand::CreateNode { id, attrs } => {
+        DotCommand::CreateNode { id, attrs, parent } => {
             // Check if node already exists
             if chunks
                 .iter()
@@ -81,18 +87,47 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 return Err(format!("Node '{}' already exists", id));
             }
 
-            // Find insertion point (after last node or at end)
-            let insert_pos = chunks
-                .iter()
-                .rposition(|c| c.kind == "node")
-                .map(|pos| pos + 1)
-                .unwrap_or(chunks.len());
+            // Find insertion point based on parent
+            let (insert_pos, line) = if let Some(parent_name) = parent {
+                // Find parent subgraph
+                let parent_pos = chunks
+                    .iter()
+                    .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
+                    .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
 
-            // Determine line number for new chunk
-            let line = if insert_pos > 0 {
-                chunks[insert_pos - 1].range.1 + 1
+                let parent_range = chunks[parent_pos].range;
+
+                // Find last item inside this parent (before parent's end line)
+                let last_child_pos = chunks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.range.0 > parent_range.0 && c.range.1 < parent_range.1)
+                    .map(|(i, _)| i)
+                    .max()
+                    .unwrap_or(parent_pos);
+
+                let line = if last_child_pos == parent_pos {
+                    parent_range.0 + 1
+                } else {
+                    chunks[last_child_pos].range.1 + 1
+                };
+
+                (last_child_pos + 1, line)
             } else {
-                1
+                // Insert after last top-level node
+                let insert_pos = chunks
+                    .iter()
+                    .rposition(|c| c.kind == "node")
+                    .map(|pos| pos + 1)
+                    .unwrap_or(chunks.len());
+
+                let line = if insert_pos > 0 {
+                    chunks[insert_pos - 1].range.1 + 1
+                } else {
+                    1
+                };
+
+                (insert_pos, line)
             };
 
             chunks.insert(
@@ -129,7 +164,12 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
             Ok(())
         }
 
-        DotCommand::CreateEdge { from, to, attrs } => {
+        DotCommand::CreateEdge {
+            from,
+            to,
+            attrs,
+            parent,
+        } => {
             // Check if edge already exists
             if chunks.iter().any(|c| {
                 c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
@@ -137,17 +177,47 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 return Err(format!("Edge '{}' -> '{}' already exists", from, to));
             }
 
-            // Find insertion point (after last edge or at end)
-            let insert_pos = chunks
-                .iter()
-                .rposition(|c| c.kind == "edge")
-                .map(|pos| pos + 1)
-                .unwrap_or(chunks.len());
+            // Find insertion point based on parent
+            let (insert_pos, line) = if let Some(parent_name) = parent {
+                // Find parent subgraph
+                let parent_pos = chunks
+                    .iter()
+                    .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
+                    .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
 
-            let line = if insert_pos > 0 {
-                chunks[insert_pos - 1].range.1 + 1
+                let parent_range = chunks[parent_pos].range;
+
+                // Find last item inside this parent
+                let last_child_pos = chunks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.range.0 > parent_range.0 && c.range.1 < parent_range.1)
+                    .map(|(i, _)| i)
+                    .max()
+                    .unwrap_or(parent_pos);
+
+                let line = if last_child_pos == parent_pos {
+                    parent_range.0 + 1
+                } else {
+                    chunks[last_child_pos].range.1 + 1
+                };
+
+                (last_child_pos + 1, line)
             } else {
-                1
+                // Insert after last top-level edge
+                let insert_pos = chunks
+                    .iter()
+                    .rposition(|c| c.kind == "edge")
+                    .map(|pos| pos + 1)
+                    .unwrap_or(chunks.len());
+
+                let line = if insert_pos > 0 {
+                    chunks[insert_pos - 1].range.1 + 1
+                } else {
+                    1
+                };
+
+                (insert_pos, line)
             };
 
             chunks.insert(
@@ -198,25 +268,25 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 return Err(format!("Subgraph '{}' already exists", id));
             }
 
-            // Find insertion point based on parent
-            let insert_pos = if let Some(parent_name) = parent {
+            // Find insertion point and calculate line range based on parent
+            let (insert_pos, line_start, line_end) = if let Some(parent_name) = parent {
                 // Find parent subgraph and insert inside it
                 let parent_pos = chunks
                     .iter()
                     .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
                     .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
 
-                // Insert after parent subgraph declaration
-                parent_pos + 1
+                let parent_range = chunks[parent_pos].range;
+                // Insert after parent subgraph declaration, give it a range inside parent
+                (parent_pos + 1, parent_range.0 + 1, parent_range.1 - 1)
             } else {
                 // Insert at end for top-level subgraph
-                chunks.len()
-            };
-
-            let line = if insert_pos > 0 {
-                chunks[insert_pos - 1].range.1 + 1
-            } else {
-                1
+                let line = if chunks.is_empty() {
+                    1
+                } else {
+                    chunks.last().unwrap().range.1 + 1
+                };
+                (chunks.len(), line, line + 10) // Give it a 10-line range by default
             };
 
             chunks.insert(
@@ -225,7 +295,7 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                     kind: "subgraph".to_string(),
                     id: id.clone(),
                     attrs: None,
-                    range: (line, line + 1), // Subgraphs span multiple lines
+                    range: (line_start, line_end),
                     extra: None,
                 },
             );
@@ -377,6 +447,7 @@ mod tests {
         let cmd = DotCommand::CreateNode {
             id: "C".to_string(),
             attrs: Some(r#"label="Node C" shape=box"#.to_string()),
+            parent: None,
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
@@ -427,6 +498,7 @@ mod tests {
             from: "B".to_string(),
             to: "A".to_string(),
             attrs: Some(r#"label="B to A" style=dashed"#.to_string()),
+            parent: None,
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
@@ -473,6 +545,7 @@ mod tests {
         let cmd = DotCommand::CreateNode {
             id: "TestNode".to_string(),
             attrs: Some(r#"label="Test""#.to_string()),
+            parent: None,
         };
 
         let json = serde_json::to_string(&cmd).unwrap();

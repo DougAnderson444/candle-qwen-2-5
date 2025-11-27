@@ -292,62 +292,17 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
 /// the original structure (subgraph nesting, comments, formatting), but will
 /// produce valid DOT that represents the same graph structure.
 pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
+    chunks_to_dot_with_indent(chunks, 0)
+}
+
+fn chunks_to_dot_with_indent(chunks: &[Chunk], indent_level: usize) -> String {
     let mut output = String::new();
     let indent = "    ";
 
-    // Build nesting structure by analyzing line ranges
-    let mut nesting_levels: Vec<usize> = Vec::new();
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        // Determine nesting level based on which subgraphs contain this chunk
-        let mut level = 0;
-
-        // Count how many subgraphs this chunk is nested within
-        for (j, potential_parent) in chunks.iter().enumerate() {
-            if j >= i {
-                break; // Only look at earlier chunks
-            }
-
-            if potential_parent.kind == "subgraph" {
-                // Check if current chunk is within this subgraph's range
-                if chunk.range.0 > potential_parent.range.0
-                    && chunk.range.1 <= potential_parent.range.1
-                {
-                    level += 1;
-                }
-            }
-        }
-
-        nesting_levels.push(level);
-    }
-
-    // Track currently open subgraphs to know when to close them
-    let mut open_subgraphs: Vec<(usize, usize)> = Vec::new(); // (index, end_line)
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        let current_level = nesting_levels[i];
-
-        // Close subgraphs that should end before this chunk
-        let mut closed_count = 0;
-        open_subgraphs.retain(|(idx, end_line)| {
-            if chunk.range.0 > *end_line {
-                // This subgraph should be closed
-                let close_level = nesting_levels[*idx];
-                output.push_str(&indent.repeat(close_level));
-                output.push_str("}\n");
-                closed_count += 1;
-                false
-            } else {
-                true
-            }
-        });
-
-        // Add blank line after closing subgraphs for readability
-        if closed_count > 0 && chunk.kind != "subgraph" {
-            output.push('\n');
-        }
-
-        let indent_str = indent.repeat(current_level);
+    let mut i = 0;
+    while i < chunks.len() {
+        let chunk = &chunks[i];
+        let indent_str = indent.repeat(indent_level);
 
         match chunk.kind.as_str() {
             "node" => {
@@ -363,6 +318,7 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
 
                     output.push_str(";\n");
                 }
+                i += 1;
             }
 
             "edge" => {
@@ -380,6 +336,7 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
 
                     output.push_str(";\n");
                 }
+                i += 1;
             }
 
             "subgraph" => {
@@ -394,8 +351,32 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
                     output.push_str("{\n");
                 }
 
-                // Track this subgraph as open
-                open_subgraphs.push((i, chunk.range.1));
+                // Find all children of this subgraph (based on line ranges)
+                let subgraph_start = chunk.range.0;
+                let subgraph_end = chunk.range.1;
+                let mut child_chunks = Vec::new();
+
+                i += 1;
+                while i < chunks.len() {
+                    let potential_child = &chunks[i];
+                    // Child chunks must be within the subgraph's line range
+                    if potential_child.range.0 > subgraph_start
+                        && potential_child.range.1 <= subgraph_end
+                    {
+                        child_chunks.push(potential_child.clone());
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Recursively output children with increased indent
+                if !child_chunks.is_empty() {
+                    output.push_str(&chunks_to_dot_with_indent(&child_chunks, indent_level + 1));
+                }
+
+                output.push_str(&indent_str);
+                output.push_str("}\n\n");
             }
 
             "id_eq" => {
@@ -406,6 +387,7 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
                     output.push_str(value);
                     output.push_str(";\n");
                 }
+                i += 1;
             }
 
             "attr_stmt" => {
@@ -421,20 +403,14 @@ pub fn chunks_to_dot(chunks: &[Chunk]) -> String {
 
                     output.push_str(";\n");
                 }
+                i += 1;
             }
 
             _ => {
-                // Unknown chunk type, skip or log warning
-                eprintln!("Warning: Unknown chunk type: {}", chunk.kind);
+                // Unknown chunk type, skip
+                i += 1;
             }
         }
-    }
-
-    // Close any remaining open subgraphs
-    while let Some((idx, _)) = open_subgraphs.pop() {
-        let level = nesting_levels[idx];
-        output.push_str(&indent.repeat(level));
-        output.push_str("}\n");
     }
 
     output
@@ -452,7 +428,8 @@ pub fn chunks_to_complete_dot(chunks: &[Chunk], graph_name: Option<&str>) -> Str
     }
     output.push_str(" {\n");
 
-    output.push_str(&chunks_to_dot(chunks));
+    // Start with indent level 1 since we're inside the digraph
+    output.push_str(&chunks_to_dot_with_indent(chunks, 1));
 
     output.push_str("}\n");
     output
