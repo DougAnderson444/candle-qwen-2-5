@@ -123,12 +123,9 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                 let from = from_pair.as_ref().map(|p| {
                     match p.as_rule() {
                         Rule::node_id => {
-                            // Extract ident from node_id
-                            p.clone()
-                                .into_inner()
-                                .next()
-                                .map(|ident| ident.as_str().to_string())
-                                .unwrap_or_else(|| p.as_str().to_string())
+                            // For node_id, preserve the entire string including port
+                            // node_id = ident ~ port?
+                            p.as_str().to_string()
                         }
                         Rule::subgraph => {
                             // For subgraph, try to get its identifier
@@ -153,10 +150,8 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, String> {
                             for rhs_inner in p.into_inner() {
                                 match rhs_inner.as_rule() {
                                     Rule::node_id => {
-                                        // Extract ident from node_id
-                                        if let Some(ident) = rhs_inner.into_inner().next() {
-                                            targets.push(ident.as_str().to_string());
-                                        }
+                                        // Preserve entire node_id string including port
+                                        targets.push(rhs_inner.as_str().to_string());
                                     }
                                     Rule::subgraph => {
                                         // For subgraph, get identifier or use anonymous
