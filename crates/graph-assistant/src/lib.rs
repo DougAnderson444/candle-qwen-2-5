@@ -235,7 +235,7 @@ where
 
         for (s, t, w) in &sorted_edges {
             dot_output.push_str(&format!(
-                "    \"{}\" {} \"{}\" [weight={}];\n",
+                "    \"{}\" {} \"{}\" [label=\"{}\"];\n",
                 s, edge_op, t, w
             ));
         }
@@ -305,16 +305,14 @@ mod tests {
         assert_eq!(final_edges[0], ("Alice".to_string(), "Bob".to_string(), 1));
         assert_eq!(final_edges[1], ("Bob".to_string(), "Carol".to_string(), 1));
 
-        let mut dot_output = String::new();
-        dot_output.push_str("digraph {\n");
-        for (s, t, w) in &final_edges {
-            dot_output.push_str(&format!("    \"{}\" -> \"{}\" [weight={}];\n", s, t, w));
-        }
-        dot_output.push_str("}\n");
+        let dot_output = ng.to_dot();
 
-        let expected_dot = r#"digraph {
-    "Alice" -> "Bob" [weight=1];
-    "Bob" -> "Carol" [weight=1];
+        let expected_dot = r#"digraph G {
+    "Alice";
+    "Bob";
+    "Carol";
+    "Alice" -> "Bob" [label="1"];
+    "Bob" -> "Carol" [label="1"];
 }
 "#;
 
@@ -348,11 +346,39 @@ mod tests {
         "C";
         "D";
     }
-    "A" -> "B" [weight=1];
-    "A" -> "C" [weight=2];
-    "C" -> "D" [weight=1];
+    "A" -> "B" [label="1"];
+    "A" -> "C" [label="2"];
+    "C" -> "D" [label="1"];
 }
 "#;
         assert_eq!(dot_output, expected_dot);
+    }
+
+    #[test]
+    fn parse_with_edge_label() {
+        let dot = r#"digraph { A -> B [label = "MyLabel"]; }"#;
+
+        let s_graph: StableGraph<DotNodeWeight, _> = ParseFromDot::try_from(dot).unwrap();
+
+        let extractor = |n: &DotNodeWeight| n.id.to_string().trim_matches('"').to_string();
+        let edge_mapper = |attrs: &petgraph::dot::dot_parser::DotAttrList| {
+            if let Some(attr) = attrs.elems.iter().find(|(k, _)| k == &"label") {
+                attr.1.to_string().trim_matches('"').to_string()
+            } else {
+                String::new()
+            }
+        };
+
+        let owned: StableGraph<String, String, _> =
+            convert_nodes_and_map_edges(s_graph, extractor, edge_mapper);
+
+        let ng = NamedGraph::<String, Directed>::from_owned_graph(owned);
+
+        let edges = ng.edges_with_names();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].2, "MyLabel");
+
+        let dot_output = ng.to_dot();
+        assert!(dot_output.contains(r#"[label="MyLabel"]"#));
     }
 }
