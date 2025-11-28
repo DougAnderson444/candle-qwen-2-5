@@ -17,7 +17,8 @@ pub enum DotCommand {
     },
     UpdateNode {
         id: String,
-        attrs: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attrs: Option<String>,
     },
     DeleteNode {
         id: String,
@@ -36,7 +37,8 @@ pub enum DotCommand {
     UpdateEdge {
         from: String,
         to: String,
-        attrs: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attrs: Option<String>,
     },
     DeleteEdge {
         from: String,
@@ -151,7 +153,9 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 .find(|c| c.kind == "node" && c.id.as_ref() == Some(id))
                 .ok_or_else(|| format!("Node '{}' not found", id))?;
 
-            node.attrs = Some(attrs.clone());
+            if let Some(new_attrs) = attrs {
+                node.attrs = Some(new_attrs.clone());
+            }
             Ok(())
         }
 
@@ -243,7 +247,9 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 })
                 .ok_or_else(|| format!("Edge '{}' -> '{}' not found", from, to))?;
 
-            edge.attrs = Some(attrs.clone());
+            if let Some(new_attrs) = attrs {
+                edge.attrs = Some(new_attrs.clone());
+            }
             Ok(())
         }
 
