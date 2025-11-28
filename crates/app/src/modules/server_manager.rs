@@ -42,13 +42,13 @@ impl Drop for ServerProcess {
                     if let Err(e) = child.kill().await {
                         tracing::error!("Failed to kill server process: {}", e);
                     }
-                    // if let Err(e) = Command::new("pkill")
-                    //     .args(["-9", "api-server"])
-                    //     .output()
-                    //     .await
-                    // {
-                    //     tracing::error!("Failed to kill server process: {}", e);
-                    // }
+                    if let Err(e) = Command::new("pkill")
+                        .args(["-9", "api-server"])
+                        .output()
+                        .await
+                    {
+                        tracing::error!("Failed to kill server process: {}", e);
+                    }
                 });
             });
         }
