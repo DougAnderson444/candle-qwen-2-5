@@ -3433,6 +3433,7 @@ dependencies = [
  "candle-qwen2-5-core",
  "pest",
  "pest_derive",
+ "regex",
  "schemars",
  "serde",
  "serde_json",

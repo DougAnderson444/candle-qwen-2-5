@@ -1,5 +1,5 @@
 digraph G {
-    A [label="Node A"];
+    A [label="Node A" color=blue];
     B [label="Node B"];
     A -> B;
 }

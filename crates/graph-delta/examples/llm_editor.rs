@@ -21,7 +21,6 @@
 //! ```sh
 //! cargo run --release --example llm_editor --features graph-delta/llm
 //! ```
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -30,169 +29,240 @@ use std::time::Instant;
 use graph_delta::{
     commands::{DotCommand, apply_command},
     parser::{Chunk, chunks_to_complete_dot, parse_dot_to_chunks},
+    tool::{execute_query_tool, get_system_prompt, get_tool_definitions, tool_call_to_command},
 };
 
 use candle_qwen2_5_core::{ModelArgs, Qwen2Model};
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SimpleToolCall {
-    tool: String,
-    ids: Vec<String>,
+struct ToolCall {
+    name: String,
+    parameters: serde_json::Value,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("=== LLM DOT File Editor Example (Simplified Agent) ===");
+    println!("=== LLM DOT Graph Editor (Tool Calling) ===\n");
 
-    // 1. Load and parse the graph into memory.
+    // 1. Load and parse the graph
     let initial_dot = include_str!("../tests/fixtures/simple_example.dot");
     let mut chunks = parse_dot_to_chunks(initial_dot)
-        .map_err(|e| anyhow::anyhow!("Failed to parse initial DOT graph: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse DOT: {}", e))?;
 
-    // 2. Define the user's request.
-    let user_instruction = "Add a new node C and connect it to node A";
-    println!("\nUser Instruction: \"{}\"", user_instruction);
+    println!("Initial Graph:");
+    println!("{}\n", chunks_to_complete_dot(&chunks, Some("G")));
 
-    // 3. Initialize the Model
+    // 2. User instruction
+    let user_instruction = "Add a new node C with label 'Node C' and connect it to node A";
+    println!("User: \"{}\"\n", user_instruction);
+
+    // 3. Initialize model
     let model_args = ModelArgs {
-        cpu: true, // Explicitly run on CPU for this example
+        cpu: true,
         ..Default::default()
     };
     let mut model = Qwen2Model::new(&model_args).await?;
 
-    // --- Agentic Workflow ---
     let start_time = Instant::now();
 
-    // 4. LLM Call 1: Simple intent analysis to get node IDs.
-    let prompt1_template = r#"# Task
-You have one tool: `find_graph_nodes(node_ids: list[string])`.
-Given a user request, identify all node IDs mentioned and respond with a JSON object to call this tool.
-Format: `{{"tool": "find_graph_nodes", "ids": ["node_id_1", "node_id_2"]}}`
-DO NOT add any other text, reasoning, or markdown.
+    // 4. Build prompt with tool definitions
+    let tools = get_tool_definitions();
+    let system_prompt = get_system_prompt();
 
-# User Request
-{user_instruction}
+    let prompt = format!(
+        r#"{}
 
-# Tool Call
-"#;
-    let prompt1 = prompt1_template.replace("{user_instruction}", user_instruction);
+Available tools:
+{}
 
-    println!("\n--- Step 1: Requesting Tool Call from LLM (Simple Format) ---");
-    let mut llm_response1 = String::new();
-    model.generate(&prompt1, 128, |s| {
-        llm_response1.push_str(&s);
-        Ok(())
-    })?;
-    println!("LLM Response (Tool Call): {}", llm_response1);
+User request: {}
 
-    // 5. Parse the simple tool call and execute in Rust.
-    let clean_json1 = extract_json_from_markdown(&llm_response1);
-    let tool_call: SimpleToolCall = serde_json::from_str(clean_json1)?;
+Think step by step:
+1. What nodes/edges need to be queried?
+2. What modifications are needed?
+3. Call the appropriate tools.
 
-    let node_ids_to_find = if tool_call.tool == "find_graph_nodes" {
-        tool_call.ids
-    } else {
-        return Err(anyhow::anyhow!("LLM called an unknown tool."));
-    };
+Respond with JSON tool calls in this format:
+{{"name": "tool_name", "parameters": {{"param": "value"}}}}
 
-    println!("\n--- Step 2: Executing Tool in Rust ---");
-    println!("Searching for nodes: {:?}", node_ids_to_find);
-    let search_results = find_graph_nodes(&node_ids_to_find, &chunks);
-    println!("Tool Result: {}", search_results);
+Tool calls:"#,
+        system_prompt,
+        serde_json::to_string_pretty(&tools)?,
+        user_instruction
+    );
 
-    // 6. LLM Call 2: Generate final command using context.
-    let prompt2_template = r#"
-    # Task
-    You are a graph modification agent. Given a user request and context about existing nodes, generate the final `DotCommand` JSON to perform the action.
-    Respond only with the final JSON command or array of commands.
-    
-    # Command Reference & JSON Format
-    - `create_node(id, [attrs])` -> `{"action": "create_node", "id": "...", "attrs": "..."}`
-    - `create_edge(from, to, [attrs])` -> `{"action": "create_edge", "from": "...", "to": "...", "attrs": "..."}`
-    (The response should be a JSON array `[]` of one or more of these objects)
-    
-    # Context
-    - User Request: "{user_instruction}"
-    - Search Results: {search_results}
-    
-    # Final Command
-    "#;
-    let prompt2 = prompt2_template
-        .replace("{user_instruction}", user_instruction)
-        .replace("{search_results}", &search_results);
-
-    println!("\n--- Step 3: Requesting Final Command from LLM ---");
-    let mut llm_response2 = String::new();
-    model.generate(&prompt2, 256, |s| {
+    println!("--- Querying LLM ---");
+    let mut llm_response = String::new();
+    model.generate(&prompt, 512, |s| {
         print!("{}", s);
         std::io::stdout().flush()?;
-        llm_response2.push_str(&s);
+        llm_response.push_str(&s);
         Ok(())
     })?;
-    println!(); // Newline after stream
+    println!("\n");
 
-    // 7. Parse and apply the final command.
-    println!("\n--- Step 4: Applying Final Command ---");
-    let final_commands: Vec<DotCommand> = parse_final_command_json(&llm_response2)?;
+    // 5. Parse tool calls from response
+    println!("--- Processing Tool Calls ---");
+    let tool_calls = extract_tool_calls(&llm_response)?;
 
-    for cmd in &final_commands {
-        println!("Applying command: {}", cmd);
-        apply_command(&mut chunks, cmd)
-            .map_err(|e| anyhow::anyhow!("Failed to apply command: {}", e))?;
+    let mut commands = Vec::new();
+
+    for call in tool_calls {
+        println!("Tool: {} with params: {}", call.name, call.parameters);
+
+        // Check if it's a query tool or modification tool
+        match call.name.as_str() {
+            "get_node" | "list_nodes" | "get_edges" => {
+                // Execute query and show results
+                match execute_query_tool(&call.name, call.parameters, &chunks) {
+                    Ok(result) => {
+                        println!("  Result: {}", result);
+                    }
+                    Err(e) => {
+                        println!("  Error: {}", e);
+                    }
+                }
+            }
+            _ => {
+                // Convert to DotCommand
+                match tool_call_to_command(&call.name, call.parameters) {
+                    Ok(cmd) => {
+                        println!("  -> Command: {:?}", cmd);
+                        commands.push(cmd);
+                    }
+                    Err(e) => {
+                        println!("  Error: {}", e);
+                    }
+                }
+            }
+        }
     }
 
-    // 8. Print the final state of the graph.
+    // 6. Apply commands
+    println!("\n--- Applying Commands ---");
+    for cmd in &commands {
+        println!("Applying: {:?}", cmd);
+        apply_command(&mut chunks, cmd).map_err(|e| anyhow::anyhow!("Failed to apply: {}", e))?;
+    }
+
+    // 7. Show final result
     let modified_dot = chunks_to_complete_dot(&chunks, Some("G"));
-    println!("\n--- Final Modified Graph ---");
+    println!("\n--- Modified Graph ---");
     println!("{}", modified_dot);
-    println!("\nTotal execution time: {:?}", start_time.elapsed());
+    println!("\nExecution time: {:?}", start_time.elapsed());
 
     Ok(())
 }
 
-/// Our "tool" implementation. It searches for nodes in the graph.
-fn find_graph_nodes(node_ids: &[String], all_chunks: &[Chunk]) -> String {
-    let mut found_nodes: Vec<&Chunk> = Vec::new();
-    for id in node_ids {
-        if let Some(chunk) = all_chunks
-            .iter()
-            .find(|c| c.kind == "node" && c.id.as_deref() == Some(id))
-        {
-            found_nodes.push(chunk);
+/// Extract tool calls from LLM response
+fn extract_tool_calls(response: &str) -> Result<Vec<ToolCall>> {
+    let mut calls = Vec::new();
+
+    // Try to extract JSON objects from response
+    let cleaned = extract_json_from_markdown(response);
+
+    // Try parsing as array first
+    if let Ok(array) = serde_json::from_str::<Vec<ToolCall>>(cleaned) {
+        return Ok(array);
+    }
+
+    // Try parsing as single object
+    if let Ok(call) = serde_json::from_str::<ToolCall>(cleaned) {
+        return Ok(vec![call]);
+    }
+
+    // Fallback: try to find JSON objects line by line
+    for line in response.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('{') && trimmed.ends_with('}') {
+            if let Ok(call) = serde_json::from_str::<ToolCall>(trimmed) {
+                calls.push(call);
+            }
         }
     }
-    // Return a compact JSON string of the results.
-    serde_json::to_string(&found_nodes).unwrap_or_else(|_| "[]".to_string())
+
+    if calls.is_empty() {
+        // If no valid JSON found, create a simplified parser
+        calls = parse_simple_format(response)?;
+    }
+
+    Ok(calls)
 }
 
-/// Extracts a JSON object or array from a markdown code block or raw string.
+/// Parse simple format like: "create_node A" or "connect A to B"
+fn parse_simple_format(response: &str) -> Result<Vec<ToolCall>> {
+    let mut calls = Vec::new();
+
+    for line in response.lines() {
+        let line = line.trim().to_lowercase();
+
+        // Pattern: "create node X" or "add node X"
+        if (line.contains("create") || line.contains("add")) && line.contains("node") {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            if let Some(id) = words.last() {
+                calls.push(ToolCall {
+                    name: "create_node".to_string(),
+                    parameters: serde_json::json!({
+                        "id": id.to_uppercase(),
+                        "label": format!("Node {}", id.to_uppercase())
+                    }),
+                });
+            }
+        }
+
+        // Pattern: "connect A to B" or "edge from A to B"
+        if line.contains("connect") || line.contains("edge") {
+            let words: Vec<&str> = line.split_whitespace().collect();
+
+            // Find "to" keyword
+            if let Some(to_idx) = words.iter().position(|&w| w == "to") {
+                if to_idx > 0 && to_idx < words.len() - 1 {
+                    let from = words[to_idx - 1].to_uppercase();
+                    let to = words[to_idx + 1].to_uppercase();
+
+                    calls.push(ToolCall {
+                        name: "create_edge".to_string(),
+                        parameters: serde_json::json!({
+                            "from": from,
+                            "to": to
+                        }),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(calls)
+}
+
+/// Extract JSON from markdown code blocks
 fn extract_json_from_markdown(raw_str: &str) -> &str {
     let trimmed = raw_str.trim();
+
+    // Check for ```json blocks
     if let Some(start) = trimmed.find("```json") {
         let remainder = &trimmed[start + 7..];
-        if let Some(end) = remainder.rfind("```") {
+        if let Some(end) = remainder.find("```") {
             return remainder[..end].trim();
         }
-        return remainder;
     }
-    trimmed
-}
 
-/// Parses the LLM's final JSON output, which could be an array or a single object.
-fn parse_final_command_json(json_str: &str) -> Result<Vec<DotCommand>> {
-    let clean_json_str = extract_json_from_markdown(json_str);
-
-    if let Ok(cmds) = serde_json::from_str(clean_json_str) {
-        Ok(cmds)
-    } else {
-        match serde_json::from_str::<DotCommand>(clean_json_str) {
-            Ok(cmd) => Ok(vec![cmd]),
-            Err(e) => Err(anyhow::anyhow!(
-                "Failed to parse final command JSON: {}. Cleaned JSON was: {}",
-                e,
-                clean_json_str
-            )),
+    // Check for ``` blocks
+    if let Some(start) = trimmed.find("```") {
+        let remainder = &trimmed[start + 3..];
+        if let Some(end) = remainder.find("```") {
+            return remainder[..end].trim();
         }
     }
-}
 
+    // Look for first { to last }
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if end > start {
+                return trimmed[start..=end].trim();
+            }
+        }
+    }
+
+    trimmed
+}
