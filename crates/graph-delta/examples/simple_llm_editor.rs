@@ -4,12 +4,12 @@
 //! ```sh
 //! cargo run --release --example simple_llm_editor --features graph-delta/llm
 //! ```
+use anyhow::{Result, anyhow};
 use regex::Regex;
-use anyhow::{anyhow, Result};
-use std::io::Write;
+use std::{io::Write, time::Instant};
 
 use graph_delta::{
-    commands::{apply_command, DotCommand},
+    commands::{DotCommand, apply_command},
     parser::{chunks_to_complete_dot, parse_dot_to_chunks},
 };
 
@@ -44,6 +44,8 @@ digraph G {
         ..Default::default()
     };
     let mut model = Qwen2Model::new(&model_args).await?;
+
+    let start_time = Instant::now();
 
     // 4. Use VERY simple prompt optimized for small models
     let prompt = format!(
@@ -91,6 +93,7 @@ A:"#,
     let modified_dot = chunks_to_complete_dot(&chunks, Some("G"));
     println!("\n--- Modified Graph ---");
     println!("{}", modified_dot);
+    println!("\nExecution time: {:?}", start_time.elapsed());
 
     Ok(())
 }
@@ -116,10 +119,17 @@ fn parse_simple_actions(response: &str) -> Result<Vec<DotCommand>> {
         if let Some(caps) = node_re.captures(clean_line) {
             let id = caps.get(1).unwrap().as_str().trim().to_string();
             // Use provided label, or create a default one. Trim quotes from label.
-            let label = caps.get(2).and_then(|m| {
-                let s = m.as_str().trim();
-                if s.is_empty() || s == "label" { None } else { Some(s.trim_matches('"').to_string()) }
-            }).unwrap_or_else(|| id.clone());
+            let label = caps
+                .get(2)
+                .and_then(|m| {
+                    let s = m.as_str().trim();
+                    if s.is_empty() || s == "label" {
+                        None
+                    } else {
+                        Some(s.trim_matches('"').to_string())
+                    }
+                })
+                .unwrap_or_else(|| id.clone());
 
             commands.push(DotCommand::CreateNode {
                 id,
