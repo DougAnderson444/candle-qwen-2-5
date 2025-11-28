@@ -32,7 +32,7 @@ use graph_delta::{
     tool::{execute_query_tool, get_system_prompt, get_tool_definitions, tool_call_to_command},
 };
 
-use candle_qwen2_5_core::{ModelArgs, Qwen2Model};
+use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ToolCall {
@@ -59,6 +59,7 @@ async fn main() -> Result<()> {
     // 3. Initialize model
     let model_args = ModelArgs {
         cpu: true,
+        which: Which::W25_0_5b,
         ..Default::default()
     };
     let mut model = Qwen2Model::new(&model_args).await?;
