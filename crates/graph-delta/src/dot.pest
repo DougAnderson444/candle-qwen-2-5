@@ -1,60 +1,72 @@
-// Whitespace and comments
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-inline_comment = _{ "//" ~ (!"\n" ~ ANY)* }
+not_quote = _{ !("\"") ~ ANY }
+not_lt_gt = _{ !("<" | ">") ~ ANY }
+quote_escaped = { ( ("\\\"") | not_quote)* }
+
+keyword = _{"node" | "edge" | "graph" | "digraph" | "subgraph" | "strict" }
+ident1 = { !(keyword~WHITESPACE) ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+numeral = _{ "-"? ~ ( ("." ~ ASCII_DIGIT+) | ( ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT*)? ) ) }
+quotemark = {"\""}
+quote = { quotemark ~ quote_escaped ~ quotemark }
+
+// HTML label support - matches balanced angle brackets
+html_content = _{ (html_tag | html_text)* }
+html_tag = _{ "<" ~ html_content ~ ">" }
+html_text = _{ (!("<" | ">") ~ ANY)+ }
+html = { "<" ~ html_content ~ ">" }
+
+ident = ${ ident1 | numeral | quote | html }
+
+dotfile = { dotgraph+ ~ &EOI }
+
+dotgraph = { strict? ~ (graph | digraph) ~ ident? ~ "{" ~ stmt_list ~ "}" }
+
+stmt_list = { ( stmt ~ ";"? )* }
+stmt = { edge_stmt | attr_stmt | id_eq | node_stmt | subgraph }
+
+attr_stmt = { (graph | node | edge) ~ attr_list }
+attr_list = { "[" ~ a_list ~ "]" ~ attr_list? }
+a_list = { ident ~ "=" ~ ident ~ ( ";" | "," )? ~ a_list? }
+
+edge_stmt = { (subgraph | node_id) ~ edge_rhs ~ attr_list? }
+edge_rhs = { edgeop ~ (subgraph | node_id) ~ edge_rhs? }
+
+node_stmt = { node_id ~ attr_list? }
+node_id = { ident ~ ( port )? }
+
+port = {
+     ":" ~ compass_pt
+    | ":" ~ ident ~ ( ":" ~ compass_pt)?
+    }
+
+edgeop = _{ "--" | "->" }
+
+graph = { "graph" }
+node = { "node" }
+edge = { "edge" }
+strict = { "strict" }
+digraph = { "digraph" }
+
+id_eq = { ident ~ "=" ~ ident }
+
+subgraph = { ("subgraph" ~ ident?)? ~ "{" ~ stmt_list ~ "}" }
+
+compass_pt = { n | ne | e | se | s | sw | w | nw | c | underscore }
+n = { "n" }
+ne = { "ne" }
+e = { "e" }
+se = { "se" }
+s = { "s" }
+sw = { "sw" }
+w = { "w" }
+nw = { "nw" }
+c = { "c" }
+underscore = { "_" }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+
+inline_comment = _{ "//" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
-COMMENT = _{ inline_comment | block_comment }
+preprocessor_begin = @{ (SOI | NEWLINE) ~ "#" }
+preprocessor_output = _{ preprocessor_begin ~ (!NEWLINE ~ ANY)* }
+COMMENT = _{ inline_comment | block_comment}
 
-// Identifiers - order matters! Try quoted first, then HTML, then plain
-ident = @{ 
-    ("\"" ~ (!"\"" ~ ANY)* ~ "\"") |
-    ("<" ~ (!">" ~ ANY)* ~ ">") |
-    ("-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)?) |
-    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
-}
-
-// Port reference
-port = { ":" ~ ident ~ (":" ~ compass_pt)? }
-compass_pt = { "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw" | "c" | "_" }
-
-// Attribute list - capture raw content between brackets
-attr_list = { "[" ~ attr_list_content ~ "]" }
-attr_list_content = @{ (!"]" ~ ANY)* }
-
-// Node with optional attributes
-node_stmt = { ident ~ port? ~ attr_list ~ ";"? }
-
-// Edge statement
-edge_op = { "->" | "--" }
-edge_rhs = { edge_op ~ ident ~ port? }
-edge_stmt = { ident ~ port? ~ edge_rhs+ ~ attr_list? ~ ";"? }
-
-// Attribute assignment (graph/node/edge defaults)
-attr_stmt = { ("graph" | "node" | "edge") ~ attr_list ~ ";"? }
-attr_assign = { ident ~ "=" ~ ident ~ ";"? }
-
-// Subgraph
-subgraph = { "subgraph" ~ ident? ~ "{" ~ stmt* ~ "}" }
-
-// Anonymous block (rank constraints, etc.)
-anon_block = { "{" ~ stmt* ~ "}" }
-
-// Bare node (just ID, no attributes)
-bare_node = { ident ~ ";"? }
-
-// Statement types
-stmt = {
-    subgraph |
-    attr_stmt |
-    edge_stmt |
-    node_stmt |
-    attr_assign |
-    anon_block |
-    bare_node
-}
-
-// Graph definition
-graph_type = { "strict"? ~ ("graph" | "digraph") }
-graph = { graph_type ~ ident? ~ "{" ~ stmt* ~ "}" }
-
-// File entry point
-file = { SOI ~ graph ~ EOI }

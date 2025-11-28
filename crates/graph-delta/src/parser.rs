@@ -5,16 +5,21 @@ use pest_derive::Parser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
-#[grammar = "do2.pest"]
+#[grammar = "dot.pest"]
 pub struct DotParser;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Chunk {
-    pub kind: String, // "node", "edge", "subgraph", "attr_assign"
+    /// Node, edge, subgraph, attr_assign
+    pub kind: String,
+    /// Identifier (for nodes, subgraphs, attr_assign)
     pub id: Option<String>,
+    /// Attributes as a raw string
     pub attrs: Option<String>,
-    pub range: (usize, usize), // line numbers
-    pub extra: Option<String>, // for edge target, etc.
+    /// Line number range in the original DOT file
+    pub range: (usize, usize),
+    /// Extra info, e.g., for edges, the target node
+    pub extra: Option<String>,
 }
 
 impl Chunk {
