@@ -239,20 +239,46 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
             Ok(())
         }
 
+        // DotCommand::UpdateEdge { from, to, attrs } => {
+        //     let edge = chunks
+        //         .iter_mut()
+        //         .find(|c| {
+        //             c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
+        //         })
+        //         .ok_or_else(|| format!("Edge '{}' -> '{}' not found", from, to))?;
+        //
+        //     if let Some(new_attrs) = attrs {
+        //         edge.attrs = Some(new_attrs.clone());
+        //     }
+        //     Ok(())
+        // }
+        // UpdateEdge but falls back to createEdge if not found
         DotCommand::UpdateEdge { from, to, attrs } => {
-            let edge = chunks
-                .iter_mut()
-                .find(|c| {
-                    c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
-                })
-                .ok_or_else(|| format!("Edge '{}' -> '{}' not found", from, to))?;
+            if let Some(edge) = chunks.iter_mut().find(|c| {
+                c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
+            }) {
+                if let Some(new_attrs) = attrs {
+                    edge.attrs = Some(new_attrs.clone());
+                }
+                Ok(())
+            } else {
+                // Edge not found, create it
+                let line = if chunks.is_empty() {
+                    1
+                } else {
+                    chunks.last().unwrap().range.1 + 1
+                };
 
-            if let Some(new_attrs) = attrs {
-                edge.attrs = Some(new_attrs.clone());
+                chunks.push(Chunk {
+                    kind: "edge".to_string(),
+                    id: Some(from.clone()),
+                    attrs: attrs.clone(),
+                    range: (line, line),
+                    extra: Some(to.clone()),
+                });
+                Ok(())
             }
-            Ok(())
         }
-
         DotCommand::DeleteEdge { from, to } => {
             let pos = chunks
                 .iter()
