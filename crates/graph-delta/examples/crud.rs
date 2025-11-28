@@ -41,7 +41,9 @@ digraph Example {
     println!("=== Operation 2: Update node attributes ===");
     let cmd = DotCommand::UpdateNode {
         id: "A".to_string(),
-        attrs: "label=\"Modified A\" color=red fillcolor=\"#ffcccc\" style=filled".to_string(),
+        attrs: Some(
+            "label=\"Modified A\" color=red fillcolor=\"#ffcccc\" style=filled".to_string(),
+        ),
     };
     apply_command(&mut chunks, &cmd).unwrap();
     println!("Command: UpdateNode A");
@@ -125,7 +127,7 @@ digraph Example {
     let cmd = DotCommand::UpdateEdge {
         from: "A".to_string(),
         to: "B".to_string(),
-        attrs: "label=\"updated\" color=green style=dashed".to_string(),
+        attrs: Some("label=\"updated\" color=green style=dashed".to_string()),
     };
     apply_command(&mut chunks, &cmd).unwrap();
     println!("Command: UpdateEdge A -> B");

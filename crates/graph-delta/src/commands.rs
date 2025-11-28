@@ -267,13 +267,12 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
 
         DotCommand::CreateSubgraph { id, parent } => {
             // Check if subgraph already exists
-            if let Some(id) = id {
-                if chunks
+            if let Some(id) = id
+                && chunks
                     .iter()
                     .any(|c| c.kind == "subgraph" && c.id.as_ref() == Some(id))
-                {
-                    return Err(format!("Subgraph '{}' already exists", id));
-                }
+            {
+                return Err(format!("Subgraph '{}' already exists", id));
             }
 
             // Find insertion point and calculate line range based on parent
@@ -460,9 +459,11 @@ mod tests {
 
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 4);
-        assert!(chunks
-            .iter()
-            .any(|c| c.id.as_ref() == Some(&"C".to_string())));
+        assert!(
+            chunks
+                .iter()
+                .any(|c| c.id.as_ref() == Some(&"C".to_string()))
+        );
     }
 
     #[test]
@@ -470,7 +471,7 @@ mod tests {
         let mut chunks = create_test_chunks();
         let cmd = DotCommand::UpdateNode {
             id: "A".to_string(),
-            attrs: r#"label="Updated A" color=red"#.to_string(),
+            attrs: Some(r#"label="Updated A" color=red"#.to_string()),
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
@@ -490,9 +491,11 @@ mod tests {
 
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 2);
-        assert!(!chunks
-            .iter()
-            .any(|c| c.id.as_ref() == Some(&"A".to_string())));
+        assert!(
+            !chunks
+                .iter()
+                .any(|c| c.id.as_ref() == Some(&"A".to_string()))
+        );
     }
 
     #[test]
@@ -520,7 +523,7 @@ mod tests {
         let cmd = DotCommand::UpdateEdge {
             from: "A".to_string(),
             to: "B".to_string(),
-            attrs: r#"label="Updated edge" color=blue"#.to_string(),
+            attrs: Some(r#"label="Updated edge" color=blue"#.to_string()),
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
