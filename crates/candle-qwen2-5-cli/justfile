@@ -1,2 +1,6 @@
 run:
   cargo run --release -- --which 3b --prompt "Q: What is 2 + 2?\nA:"
+
+# read ./instr.txt and use its content as the prompt
+run-instr:
+  cargo run --release -- --which 3b --prompt-file ./instr.txt

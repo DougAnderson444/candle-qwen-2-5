@@ -32,6 +32,10 @@ struct Args {
     #[arg(long)]
     prompt: Option<String>,
 
+    /// Optionally use a prompt file instead of a prompt string.
+    #[arg(long)]
+    prompt_file: Option<String>,
+
     /// The length of the sample to generate (in tokens).
     #[arg(short = 'n', long, default_value_t = 1000)]
     sample_len: usize,
@@ -140,7 +144,14 @@ async fn main() -> Result<()> {
 
     let mut model = Qwen2Model::new(&model_args).await?;
 
-    let prompt_str = args.prompt.unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+    // prompt ir either from prompt arg or prompt file
+    let prompt_str = if let Some(prompt_file) = args.prompt_file {
+        std::fs::read_to_string(prompt_file)?
+    } else if let Some(prompt) = args.prompt {
+        prompt
+    } else {
+        DEFAULT_PROMPT.to_string()
+    };
 
     let stats = model.generate(&prompt_str, model_args.sample_len, |token| {
         print!("{token}");
