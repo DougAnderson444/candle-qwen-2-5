@@ -309,7 +309,7 @@ fn build_rough_options_from_attrs(attrs: &SvgAttrs, cfg: &SvgBuildConfig) -> Opt
     if let Some(mut fill) = attrs.fill.as_ref().and_then(|s| parse_color_to_srgba(s)) {
         if cfg.rough_style {
             // Slight attenuation to reduce visual density under text
-            fill = attenuate_alpha(fill, 0.8);
+            fill = attenuate_alpha(fill, 1.0);
         }
         builder.fill(fill);
     }
@@ -612,7 +612,11 @@ fn build_node(node: Node, cfg: &SvgBuildConfig, navigator: Option<&Navigator>) -
         .filter_map(|c| build_node(c, cfg, navigator))
         .collect();
 
-    let arch_daughter = r#"@import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&display=swap'); svg, text, tspan { font-family: 'Architects Daughter', 'Comic Sans MS', cursive, sans-serif; }"#;
+    let arch_daughter = r#"@import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols+2&display=swap');
+svg, text, tspan {
+  font-family: 'Architects Daughter','Noto Sans Symbols 2','Noto Sans',sans-serif;
+}"#;
 
     let custom_style = if cfg.rough_style && cfg.rough_use_custom_font {
         if let Some(css) = cfg.rough_embed_font_data {

@@ -1,6 +1,5 @@
 //! Component to render DOT graphs using Graphvizm and Dioxus
 mod render;
-use dioxus_logger::tracing;
 use render::{GraphvizSvg, SvgBuildConfig};
 
 use dioxus::prelude::*;
@@ -10,7 +9,7 @@ use graphvizm::Graphvizm;
 // const KITCHEN_SINK_DOT: Asset = asset!("/assets/kitchen_sink.dot");
 const KITCHEN_SINK_DOT: &str = include_str!("../../assets/kitchen_sink.dot");
 // const SIMPLE_DOT: Asset = asset!("/assets/simple.dot");
-const SIMPLE_DOT: &str = include_str!("../../assets/simple.dot");
+// const SIMPLE_DOT: &str = include_str!("../../assets/simple.dot");
 
 #[component]
 pub fn DotDisplay(dot_source: ReadSignal<String>) -> Element {
