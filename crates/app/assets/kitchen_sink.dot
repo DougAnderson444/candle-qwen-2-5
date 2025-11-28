@@ -8,6 +8,7 @@ digraph "KitchenSink" {
         fontname="Times"
         fontsize=20
         pencolor="#444444"
+        charset="UTF-8"
     ];
 
     // Default node attributes
