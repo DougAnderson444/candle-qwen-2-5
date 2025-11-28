@@ -3429,12 +3429,15 @@ dependencies = [
 name = "graph-delta"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "candle-qwen2-5-core",
  "pest",
  "pest_derive",
  "schemars",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

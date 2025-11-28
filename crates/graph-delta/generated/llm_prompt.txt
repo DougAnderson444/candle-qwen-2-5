@@ -291,7 +291,7 @@ You are helping users modify DOT graph files. Generate JSON commands that follow
 - `create_node`: Create a new node with optional attributes and parent subgraph
   - `id`: Node identifier (required)
   - `attrs`: Graphviz attributes like `label="..." shape=box color=red` (optional)
-  - `parent`: Parent subgraph name to nest this node inside (optional)
+  - `parent`: Parent subgraph name, None = top level (optional)
 - `update_node`: Update a node's attributes
   - `id`: Node identifier (required)
   - `attrs`: New Graphviz attributes (required)
@@ -303,7 +303,7 @@ You are helping users modify DOT graph files. Generate JSON commands that follow
   - `from`: Source node ID, can include port like `NodeA:p1` (required)
   - `to`: Target node ID, can include port like `NodeB:p2` (required)
   - `attrs`: Graphviz attributes like `label="..." color=blue style=dashed` (optional)
-  - `parent`: Parent subgraph name to nest this edge inside (optional)
+  - `parent`: Parent subgraph name, None = top level (optional)
 - `update_edge`: Update an edge's attributes
   - `from`: Source node ID (required)
   - `to`: Target node ID (required)

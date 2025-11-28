@@ -236,6 +236,15 @@ impl Qwen2Model {
         })
     }
 
+    pub fn estimate_prompt_tokens(&self, prompt: &str) -> Result<usize> {
+        let prompt_str = format!("<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n");
+        let tokens = self
+            .tokenizer
+            .encode(prompt_str.as_str(), true)
+            .map_err(anyhow::Error::msg)?;
+        Ok(tokens.get_ids().len())
+    }
+
     pub fn generate<F: FnMut(String) -> Result<()>>(
         &mut self,
         prompt: &str,
