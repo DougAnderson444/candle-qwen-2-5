@@ -1,26 +1,23 @@
-//! An example of using `graph-delta` with a simplified, two-step LLM agent.
+//! An example of using `graph-delta` with a simple, two-step LLM agent.
 //!
-//! This version is radically simplified to work more reliably with smaller,
+//! This version is radically simple to work more reliably with smaller,
 //! less powerful local models (e.g., Qwen2 0.5B).
 //!
-//! It abandons the complex, official tool-calling JSON schema in favor of a
-//! dead-simple, custom JSON format that is easier for the model to generate.
+//! ## Example Workflow
 //!
-//! ## New Workflow
-//! 
-//! 1. **Parse Graph**: The application parses the DOT graph into memory first.
-//! 2. **LLM Call 1 (Simple Intent-to-Query)**: The LLM is given a very simple
+//! 1. Parse Graph: The application parses the DOT graph into memory first.
+//! 2. LLM Call 1 (Simple Intent-to-Query): The LLM is given a very simple
 //!    prompt and a single example. Its only job is to extract node IDs from the
 //!    user's request into a simple JSON format: `{"tool":"find...","ids":[...]}`.
-//! 3. **Rust Executes Search**: The application parses this simple JSON and
+//! 3. Rust Executes Search: The application parses this simple JSON and
 //!    searches the in-memory graph for the requested nodes.
-//! 4. **LLM Call 2 (Context-to-Command)**: The application sends a new, simple
+//! 4. LLM Call 2 (Context-to-Command): The application sends a new, simple
 //!    prompt to the LLM containing the user's request and the search results.
 //!    The LLM's job is to generate the final `DotCommand` JSON.
 //! 5. The final command is parsed and applied.
 //!
 //! ## Usage
-//! 
+//!
 //! ```sh
 //! cargo run --release --example llm_editor --features graph-delta/llm
 //! ```
@@ -31,21 +28,17 @@ use std::io::Write;
 use std::time::Instant;
 
 use graph_delta::{
-    commands::{apply_command, DotCommand},
-    parser::{chunks_to_complete_dot, parse_dot_to_chunks, Chunk},
+    commands::{DotCommand, apply_command},
+    parser::{Chunk, chunks_to_complete_dot, parse_dot_to_chunks},
 };
 
 use candle_qwen2_5_core::{ModelArgs, Qwen2Model};
-
-// --- Simplified Tool-Use Data Structures ---
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SimpleToolCall {
     tool: String,
     ids: Vec<String>,
 }
-
-// --- Main Application Logic ---
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -108,7 +101,7 @@ DO NOT add any other text, reasoning, or markdown.
     println!("Tool Result: {}", search_results);
 
     // 6. LLM Call 2: Generate final command using context.
-        let prompt2_template = r#"
+    let prompt2_template = r#"
     # Task
     You are a graph modification agent. Given a user request and context about existing nodes, generate the final `DotCommand` JSON to perform the action.
     Respond only with the final JSON command or array of commands.
@@ -124,9 +117,9 @@ DO NOT add any other text, reasoning, or markdown.
     
     # Final Command
     "#;
-        let prompt2 = prompt2_template
-            .replace("{user_instruction}", user_instruction)
-            .replace("{search_results}", &search_results);
+    let prompt2 = prompt2_template
+        .replace("{user_instruction}", user_instruction)
+        .replace("{search_results}", &search_results);
 
     println!("\n--- Step 3: Requesting Final Command from LLM ---");
     let mut llm_response2 = String::new();
@@ -163,7 +156,8 @@ fn find_graph_nodes(node_ids: &[String], all_chunks: &[Chunk]) -> String {
     for id in node_ids {
         if let Some(chunk) = all_chunks
             .iter()
-            .find(|c| c.kind == "node" && c.id.as_deref() == Some(id)) {
+            .find(|c| c.kind == "node" && c.id.as_deref() == Some(id))
+        {
             found_nodes.push(chunk);
         }
     }
@@ -201,3 +195,4 @@ fn parse_final_command_json(json_str: &str) -> Result<Vec<DotCommand>> {
         }
     }
 }
+
