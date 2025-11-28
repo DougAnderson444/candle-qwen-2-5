@@ -48,7 +48,7 @@ impl Default for ModelArgs {
             cpu: false,
             repeat_penalty: 1.1,
             repeat_last_n: 64,
-            which: Which::W25_3b,
+            which: Which::W25_0_5b,
         }
     }
 }
