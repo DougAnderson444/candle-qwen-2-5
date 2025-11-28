@@ -1,9 +1,5 @@
+use graph_delta::parser::{DotParser, Rule};
 use pest::Parser;
-use pest_derive::Parser;
-
-#[derive(Parser)]
-#[grammar = "do2.pest"]
-struct DotParser;
 
 fn main() {
     let dot_input = include_str!("../tests/fixtures/kitchen_sink.dot");
