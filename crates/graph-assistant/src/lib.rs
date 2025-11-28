@@ -235,12 +235,12 @@ where
 
         for (s, t, w) in &sorted_edges {
             let edge_label = w.to_string();
-            let label_attr = if edge_label.trim().starts_with('<') && edge_label.trim().ends_with('>')
-            {
-                format!("label={}", edge_label)
-            } else {
-                format!("label=\"{}\"", edge_label)
-            };
+            let label_attr =
+                if edge_label.trim().starts_with('<') && edge_label.trim().ends_with('>') {
+                    format!("label={}", edge_label)
+                } else {
+                    format!("label=\"{}\"", edge_label)
+                };
 
             dot_output.push_str(&format!(
                 "    \"{}\" {} \"{}\" [{}];\n",
@@ -256,6 +256,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use petgraph::dot::Dot;
     use petgraph::dot::dot_parser::{DotNodeWeight, ParseFromDot};
     use petgraph::stable_graph::StableGraph;
 
@@ -417,5 +418,23 @@ mod tests {
         let dot_output = ng.to_dot();
         // Check that the output is label=<...> and not label="..."
         assert!(dot_output.contains("[label=<simple text>]"));
+    }
+
+    // parse tests/fixtures/record.dot
+    #[test]
+    fn parse_record_node() {
+        let dot =
+            r#"digraph { A [label="{<p0> left | <p1> middle | <p2> right}"]; B; A:f0 -> B; }"#;
+        let s_graph: StableGraph<DotNodeWeight, _> = ParseFromDot::try_from(dot).unwrap();
+        let extractor = |n: &DotNodeWeight| n.id.to_string().trim_matches('"').to_string();
+        let edge_mapper = |_: &petgraph::dot::dot_parser::DotAttrList| 1;
+        let owned: StableGraph<String, i32, _> =
+            convert_nodes_and_map_edges(s_graph, extractor, edge_mapper);
+        let ng = NamedGraph::<i32, Directed>::from_owned_graph(owned);
+        let edges = ng.edges_with_names();
+        assert_eq!(edges.len(), 1);
+
+        let dot_output = Dot::with_config(&ng.graph, &[]).to_string();
+        println!("DOT Output:\n{}", dot_output);
     }
 }
