@@ -1,8 +1,8 @@
+use crate::parser::Chunk;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::parser::Chunk;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum DotCommand {
     // Node operations

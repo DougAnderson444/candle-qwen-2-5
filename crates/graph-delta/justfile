@@ -1,0 +1,2 @@
+schema:
+  cargo run --bin generate_schema

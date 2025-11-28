@@ -1,0 +1,280 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DotCommand",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "id"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_node"
+          ]
+        },
+        "attrs": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent subgraph name, None = top level",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "attrs",
+        "id"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "update_node"
+          ]
+        },
+        "attrs": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "id"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "delete_node"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_edge"
+          ]
+        },
+        "attrs": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent subgraph name, None = top level",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "attrs",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "update_edge"
+          ]
+        },
+        "attrs": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "delete_edge"
+          ]
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_subgraph"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "id"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "delete_subgraph"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "key",
+        "value"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "set_graph_attr"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "attrs"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "set_node_default"
+          ]
+        },
+        "attrs": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "attrs"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "set_edge_default"
+          ]
+        },
+        "attrs": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "action",
+        "key"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "delete_attr"
+          ]
+        },
+        "key": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}
