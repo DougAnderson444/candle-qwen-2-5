@@ -10,12 +10,12 @@
 //! cargo run --release --example dsl_editor --features graph-delta/llm
 //! ```
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::io::Write;
 use std::time::Instant;
 
 use graph_delta::{
-    dsl::{apply_commands, parse_dsl, DslCommand},
+    dsl::{DslCommand, apply_commands, parse_dsl},
     parser::{chunks_to_complete_dot, parse_dot_to_chunks},
 };
 
@@ -46,10 +46,8 @@ async fn main() -> Result<()> {
     //    No need to know current graph state!
     // ------------------------------------------------------
     let user_request = r#"
-Make the edge from A to B red and increase its thickness.
-Increase B's font size to 18.
-Add a new edge from B to A labeled reverse.
-Set default edge color to gray and arrow size to 0.7.
+Make the edge from A to B red and thicker.
+Add a new node C with a blue box shape.
     "#;
 
     println!("User: \"{}\"\n", user_request.trim());
@@ -65,49 +63,66 @@ Set default edge color to gray and arrow size to 0.7.
     let mut model = Qwen2Model::new(&model_args).await?;
 
     let few_shot_prompt = include_str!("../src/dsl/few-shot.txt");
-    
+
     // Simplified prompt - no graph state needed!
     // The LLM just describes what the user wants, Rust handles add/update logic
     let full_prompt = format!(
-        "{}\n\n=====================\nUSER REQUEST\n=====================\n\"{}\"\n\n=====================\nOUTPUT\n=====================\n",
+        "{}\n\n\"{}\" →\n",
         few_shot_prompt.trim(),
         user_request.trim()
     );
 
     println!("--- LLM Response (DSL) ---");
     let mut llm_resp = String::new();
-    model.generate(&full_prompt, 256, |s| {
+    model.generate(&full_prompt, 64, |s| {
+        // Reduced from 256 to 64 tokens
         print!("{s}");
         std::io::stdout().flush()?;
         llm_resp.push_str(&s);
         Ok(())
     })?;
     llm_resp = llm_resp.trim().to_string();
-    
+
     // Sanitize LLM output: keep only valid DSL lines
     llm_resp = llm_resp
         .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
+        .filter_map(|line| {
+            let mut trimmed = line.trim();
             // Skip empty lines
             if trimmed.is_empty() {
-                return false;
+                return None;
             }
             // Skip markdown code fences
             if trimmed.starts_with("```") {
-                return false;
+                return None;
             }
-            // Skip section markers
-            if trimmed.starts_with("=====") || trimmed.starts_with("---") ||
-               trimmed.contains("USER REQUEST") || trimmed.contains("OUTPUT") {
-                return false;
+            // Skip section markers and prompt artifacts
+            if trimmed.starts_with("===")
+                || trimmed.starts_with("---")
+                || trimmed.starts_with("Request:")
+                || trimmed.starts_with("DSL:")
+            {
+                return None;
             }
+
+            // Remove surrounding quotes if present
+            if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+                || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+            {
+                trimmed = &trimmed[1..trimmed.len() - 1];
+            }
+
             // Keep lines that start with valid DSL commands
-            trimmed.starts_with("node ") ||
-            trimmed.starts_with("edge ") ||
-            trimmed.starts_with("subgraph ") ||
-            trimmed.starts_with("graph ") ||
-            trimmed.starts_with("rank ")
+            if trimmed.starts_with("node ")
+                || trimmed.starts_with("edge ")
+                || trimmed.starts_with("subgraph ")
+                || trimmed.starts_with("graph ")
+                || trimmed.starts_with("rank ")
+            {
+                Some(trimmed.to_string())
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");

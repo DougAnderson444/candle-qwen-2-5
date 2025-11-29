@@ -4,7 +4,9 @@ NEWLINE = _{ "\n" | "\r\n" }
 file = { SOI ~ statement* ~ EOI }
 
 statement = _{
-    node_cmd | edge_cmd | subgraph_cmd |
+    node_delete_cmd | node_cmd |
+    edge_delete_cmd | edge_cmd |
+    subgraph_delete_cmd | subgraph_move_cmd | subgraph_cmd |
     graph_set_cmd |
     node_defaults_cmd | edge_defaults_cmd |
     rank_same_cmd | rank_min_cmd | rank_max_cmd
@@ -35,10 +37,10 @@ rank_max_cmd  = { "rank" ~ "max" ~ identifier_list }
 
 
 // # --- Attribute & identifiers ---
-attr_list        = { attr ~ ( ("," | WHITESPACE+) ~ attr)* } // Allow whitespace or comma
+attr_list        = { attr ~ ( ","? ~ attr)* }  // Implicit whitespace, optional comma
 attr             = { identifier ~ "=" ~ value }
 identifier_list  = { identifier ~ ("," ~ identifier)* }
-identifier       = @{ ASCII_ALPHANUMERIC+ | quote } // Identifiers can be quoted
-value            = @{ (!("," | NEWLINE) ~ ANY )+ } // Value can be anything until comma or newline, not quoted
+identifier       = @{ ASCII_ALPHANUMERIC+ | quote }  // Identifiers can be quoted
+value            = @{ quote | (!("," | WHITESPACE | NEWLINE) ~ ANY)+ }  // Quoted string or unquoted word
 
 quote = { "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
