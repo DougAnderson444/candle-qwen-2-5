@@ -9,20 +9,13 @@ pest_derive = "2.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-schemars = "0.8"
 anyhow = "1"
-tokio = { version = "1", features = ["full"], optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
 candle-qwen2-5-core = { path = "../candle-qwen2-5-core", optional = true }
-regex = { version = "1.12.2", optional = true }
 
 [features]
 default = []
 llm = ["dep:candle-qwen2-5-core", "dep:tokio"]
-
-[[example]]
-name = "simple_llm_editor"
-path = "examples/simple_llm_editor.rs"
-required-features = ["llm", "regex"]
 
 [[example]]
 name = "llm_editor"

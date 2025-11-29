@@ -12,20 +12,20 @@ statement = _{
     rank_same_cmd | rank_min_cmd | rank_max_cmd
 }
 
-// # --- Node operations ---
+// --- Node operations ---
 node_cmd = { "node" ~ identifier ~ (attr_list)? }
 node_delete_cmd = { "node" ~ "delete" ~ identifier }
 
-// # --- Edge operations ---
+// --- Edge operations ---
 edge_cmd = { "edge" ~ identifier ~ "->" ~ identifier ~ (attr_list)? }
 edge_delete_cmd = { "edge" ~ "delete" ~ identifier ~ "->" ~ identifier }
 
-// # --- Subgraph operations ---
+// --- Subgraph operations ---
 subgraph_cmd = { "subgraph" ~ identifier ~ (attr_list)? }
 subgraph_move_cmd   = { "subgraph" ~ "move" ~ identifier ~ "to" ~ identifier }
 subgraph_delete_cmd = { "subgraph" ~ "delete" ~ identifier }
 
-// # --- Global graph settings ---
+// --- Global graph settings ---
 graph_set_cmd     = { "graph" ~ "set" ~ attr_list }
 node_defaults_cmd = { "node" ~ "defaults" ~ attr_list }
 edge_defaults_cmd = { "edge" ~ "defaults" ~ attr_list }
@@ -36,7 +36,7 @@ rank_min_cmd  = { "rank" ~ "min" ~ identifier_list }
 rank_max_cmd  = { "rank" ~ "max" ~ identifier_list }
 
 
-// # --- Attribute & identifiers ---
+// --- Attribute & identifiers ---
 attr_list        = { attr ~ ( ","? ~ attr)* }  // Implicit whitespace, optional comma
 attr             = { identifier ~ "=" ~ value }
 identifier_list  = { identifier ~ ("," ~ identifier)* }

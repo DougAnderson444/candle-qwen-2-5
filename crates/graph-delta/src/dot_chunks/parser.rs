@@ -17,7 +17,7 @@ pub enum Error {
 }
 
 #[derive(Parser)]
-#[grammar = "dot.pest"]
+#[grammar = "dot_chunks/dot.pest"]
 pub struct DotParser;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -205,7 +205,11 @@ pub fn parse_dot_to_chunks(dot: &str) -> Result<Vec<Chunk>, Error> {
                             targets.push(target.as_str().trim().to_string());
                         }
                         Rule::attr_list => {
-                            attrs = p.into_inner().next().map(parse_dot_attributes).unwrap_or_default();
+                            attrs = p
+                                .into_inner()
+                                .next()
+                                .map(parse_dot_attributes)
+                                .unwrap_or_default();
                         }
                         _ => {}
                     }
@@ -341,11 +345,9 @@ fn chunks_to_dot_with_indent(chunks: &[Chunk], indent_level: usize) -> String {
 }
 
 pub fn chunks_to_complete_dot(chunks: &[Chunk], graph_name: Option<&str>) -> String {
-
     // This function is a wrapper around chunks_to_dot_nested, which handles the full logic.
 
     chunks_to_dot_nested(chunks, graph_name)
-
 }
 
 pub fn chunks_to_dot_nested(chunks: &[Chunk], graph_name: Option<&str>) -> String {
