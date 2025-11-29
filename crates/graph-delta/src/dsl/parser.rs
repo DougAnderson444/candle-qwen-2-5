@@ -16,18 +16,15 @@ pub fn parse_dsl(input: &str) -> Result<Vec<DslCommand>, pest::error::Error<Rule
     for stmt in file.into_inner() {
         match stmt.as_rule() {
             // Node Commands
-            Rule::node_add_cmd => cmds.push(parse_node_add_cmd(stmt)),
-            Rule::node_update_cmd => cmds.push(parse_node_update_cmd(stmt)),
+            Rule::node_cmd => cmds.push(parse_node_cmd(stmt)),
             Rule::node_delete_cmd => cmds.push(parse_node_delete_cmd(stmt)),
 
             // Edge Commands
-            Rule::edge_add_cmd => cmds.push(parse_edge_add_cmd(stmt)),
-            Rule::edge_update_cmd => cmds.push(parse_edge_update_cmd(stmt)),
+            Rule::edge_cmd => cmds.push(parse_edge_cmd(stmt)),
             Rule::edge_delete_cmd => cmds.push(parse_edge_delete_cmd(stmt)),
 
             // Subgraph Commands
-            Rule::subgraph_add_cmd => cmds.push(parse_subgraph_add_cmd(stmt)),
-            Rule::subgraph_update_cmd => cmds.push(parse_subgraph_update_cmd(stmt)),
+            Rule::subgraph_cmd => cmds.push(parse_subgraph_cmd(stmt)),
             Rule::subgraph_move_cmd => cmds.push(parse_subgraph_move_cmd(stmt)),
             Rule::subgraph_delete_cmd => cmds.push(parse_subgraph_delete_cmd(stmt)),
 
@@ -63,18 +60,11 @@ fn parse_ident_list(pair: Pair<Rule>) -> Vec<String> {
 }
 
 // --- Node Command Parsers ---
-fn parse_node_add_cmd(pair: Pair<Rule>) -> DslCommand {
+fn parse_node_cmd(pair: Pair<Rule>) -> DslCommand {
     let mut inner = pair.into_inner();
     let id = inner.next().unwrap().as_str().to_string();
     let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Node(NodeCmd::Add { id, attrs })
-}
-
-fn parse_node_update_cmd(pair: Pair<Rule>) -> DslCommand {
-    let mut inner = pair.into_inner();
-    let id = inner.next().unwrap().as_str().to_string();
-    let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Node(NodeCmd::Update { id, attrs })
+    DslCommand::Node(NodeCmd::Set { id, attrs })
 }
 
 fn parse_node_delete_cmd(pair: Pair<Rule>) -> DslCommand {
@@ -84,20 +74,12 @@ fn parse_node_delete_cmd(pair: Pair<Rule>) -> DslCommand {
 }
 
 // --- Edge Command Parsers ---
-fn parse_edge_add_cmd(pair: Pair<Rule>) -> DslCommand {
+fn parse_edge_cmd(pair: Pair<Rule>) -> DslCommand {
     let mut inner = pair.into_inner();
     let from = inner.next().unwrap().as_str().to_string();
     let to = inner.next().unwrap().as_str().to_string();
     let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Edge(EdgeCmd::Add { from, to, attrs })
-}
-
-fn parse_edge_update_cmd(pair: Pair<Rule>) -> DslCommand {
-    let mut inner = pair.into_inner();
-    let from = inner.next().unwrap().as_str().to_string();
-    let to = inner.next().unwrap().as_str().to_string();
-    let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Edge(EdgeCmd::Update { from, to, attrs })
+    DslCommand::Edge(EdgeCmd::Set { from, to, attrs })
 }
 
 fn parse_edge_delete_cmd(pair: Pair<Rule>) -> DslCommand {
@@ -108,18 +90,11 @@ fn parse_edge_delete_cmd(pair: Pair<Rule>) -> DslCommand {
 }
 
 // --- Subgraph Command Parsers ---
-fn parse_subgraph_add_cmd(pair: Pair<Rule>) -> DslCommand {
+fn parse_subgraph_cmd(pair: Pair<Rule>) -> DslCommand {
     let mut inner = pair.into_inner();
     let id = inner.next().unwrap().as_str().to_string();
     let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Cluster(ClusterCmd::Add { id, attrs })
-}
-
-fn parse_subgraph_update_cmd(pair: Pair<Rule>) -> DslCommand {
-    let mut inner = pair.into_inner();
-    let id = inner.next().unwrap().as_str().to_string();
-    let attrs = inner.next().map(parse_attrs).unwrap_or_default();
-    DslCommand::Cluster(ClusterCmd::Update { id, attrs })
+    DslCommand::Cluster(ClusterCmd::Set { id, attrs })
 }
 
 fn parse_subgraph_move_cmd(pair: Pair<Rule>) -> DslCommand {

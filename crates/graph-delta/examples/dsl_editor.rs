@@ -21,21 +21,6 @@ use graph_delta::{
 
 use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
 
-fn format_attrs(attrs: &std::collections::HashMap<String, String>) -> String {
-    if attrs.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " [{}]",
-            attrs
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let start_time = Instant::now();
@@ -57,13 +42,14 @@ async fn main() -> Result<()> {
     println!("{}\n", chunks_to_complete_dot(&chunks, Some("G")));
 
     // ------------------------------------------------------
-    // 2. User request → we will ask LLM to emit NEW DSL
+    // 2. User request - LLM will generate simple DSL
+    //    No need to know current graph state!
     // ------------------------------------------------------
     let user_request = r#"
-make the edge A->B red and thicker
-increase B's fontsize to 18
-add a new edge B->A labeled "reverse"
-set edge defaults color=gray arrowsize=0.7
+Make the edge from A to B red and increase its thickness.
+Increase B's font size to 18.
+Add a new edge from B to A labeled reverse.
+Set default edge color to gray and arrow size to 0.7.
     "#;
 
     println!("User: \"{}\"\n", user_request.trim());
@@ -80,31 +66,11 @@ set edge defaults color=gray arrowsize=0.7
 
     let few_shot_prompt = include_str!("../src/dsl/few-shot.txt");
     
-    // Create a summary of the current graph state
-    let graph_summary = chunks
-        .iter()
-        .map(|c| match c.kind.as_str() {
-            "node" => format!(
-                "node: id={}{}",
-                c.id.as_deref().unwrap_or("?"),
-                format_attrs(&c.attrs)
-            ),
-            "edge" => format!(
-                "edge: {} -> {}{}",
-                c.id.as_deref().unwrap_or("?"),
-                c.extra.as_deref().unwrap_or("?"),
-                format_attrs(&c.attrs)
-            ),
-            _ => format!("{}: {:?}", c.kind, c.id),
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    
-    // Append the new user request with current graph context
+    // Simplified prompt - no graph state needed!
+    // The LLM just describes what the user wants, Rust handles add/update logic
     let full_prompt = format!(
-        "{}\n\n=====================\nCURRENT GRAPH STATE\n=====================\n{}\n\n=====================\nUSER REQUEST\n=====================\n\"{}\"\n\n=====================\nGRAPHOPS DSL OUTPUT\n=====================\n",
+        "{}\n\n=====================\nUSER REQUEST\n=====================\n\"{}\"\n\n=====================\nOUTPUT\n=====================\n",
         few_shot_prompt.trim(),
-        graph_summary,
         user_request.trim()
     );
 
@@ -118,7 +84,7 @@ set edge defaults color=gray arrowsize=0.7
     })?;
     llm_resp = llm_resp.trim().to_string();
     
-    // Sanitize LLM output: remove any markdown fences, section markers, or non-DSL lines
+    // Sanitize LLM output: keep only valid DSL lines
     llm_resp = llm_resp
         .lines()
         .filter(|line| {
@@ -133,14 +99,7 @@ set edge defaults color=gray arrowsize=0.7
             }
             // Skip section markers
             if trimmed.starts_with("=====") || trimmed.starts_with("---") ||
-               trimmed.contains("=====") || trimmed.contains("USER REQUEST") ||
-               trimmed.contains("GRAPHOPS DSL") || trimmed.contains("CHUNKS") {
-                return false;
-            }
-            // Skip lines that look like descriptive text (containing colons but not valid DSL)
-            if trimmed.contains(':') && !trimmed.starts_with("node ") && 
-               !trimmed.starts_with("edge ") && !trimmed.starts_with("subgraph ") &&
-               !trimmed.starts_with("graph ") && !trimmed.starts_with("rank ") {
+               trimmed.contains("USER REQUEST") || trimmed.contains("OUTPUT") {
                 return false;
             }
             // Keep lines that start with valid DSL commands

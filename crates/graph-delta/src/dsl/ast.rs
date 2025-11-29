@@ -12,23 +12,17 @@ pub enum DslCommand {
 
 #[derive(Debug)]
 pub enum NodeCmd {
-    Add { id: String, attrs: Attrs },
-    Update { id: String, attrs: Attrs },
+    Set { id: String, attrs: Attrs },  // Auto-detects add vs update
     Delete { id: String },
 }
 
 #[derive(Debug)]
 pub enum EdgeCmd {
-    Add {
+    Set {
         from: String,
         to: String,
         attrs: Attrs,
-    },
-    Update {
-        from: String,
-        to: String,
-        attrs: Attrs,
-    },
+    },  // Auto-detects add vs update
     Delete {
         from: String,
         to: String,
@@ -37,8 +31,7 @@ pub enum EdgeCmd {
 
 #[derive(Debug)]
 pub enum ClusterCmd {
-    Add { id: String, attrs: Attrs },
-    Update { id: String, attrs: Attrs },
+    Set { id: String, attrs: Attrs },  // Auto-detects add vs update
     Delete { id: String },
     Move { node: String, cluster: String },
 }

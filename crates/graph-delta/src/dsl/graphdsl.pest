@@ -4,27 +4,22 @@ NEWLINE = _{ "\n" | "\r\n" }
 file = { SOI ~ statement* ~ EOI }
 
 statement = _{
-    node_add_cmd | node_update_cmd | node_delete_cmd |
-    edge_add_cmd | edge_update_cmd | edge_delete_cmd |
-    subgraph_add_cmd | subgraph_update_cmd | subgraph_move_cmd | subgraph_delete_cmd |
+    node_cmd | edge_cmd | subgraph_cmd |
     graph_set_cmd |
     node_defaults_cmd | edge_defaults_cmd |
     rank_same_cmd | rank_min_cmd | rank_max_cmd
 }
 
 // # --- Node operations ---
-node_add_cmd    = { "node" ~ "add" ~ identifier ~ (attr_list)? }
-node_update_cmd = { "node" ~ "update" ~ identifier ~ (attr_list)? }
+node_cmd = { "node" ~ identifier ~ (attr_list)? }
 node_delete_cmd = { "node" ~ "delete" ~ identifier }
 
 // # --- Edge operations ---
-edge_add_cmd    = { "edge" ~ "add" ~ identifier ~ "->" ~ identifier ~ (attr_list)? }
-edge_update_cmd = { "edge" ~ "update" ~ identifier ~ "->" ~ identifier ~ (attr_list)? }
+edge_cmd = { "edge" ~ identifier ~ "->" ~ identifier ~ (attr_list)? }
 edge_delete_cmd = { "edge" ~ "delete" ~ identifier ~ "->" ~ identifier }
 
 // # --- Subgraph operations ---
-subgraph_add_cmd    = { "subgraph" ~ "add" ~ identifier ~ (attr_list)? }
-subgraph_update_cmd = { "subgraph" ~ "update" ~ identifier ~ (attr_list)? }
+subgraph_cmd = { "subgraph" ~ identifier ~ (attr_list)? }
 subgraph_move_cmd   = { "subgraph" ~ "move" ~ identifier ~ "to" ~ identifier }
 subgraph_delete_cmd = { "subgraph" ~ "delete" ~ identifier }
 

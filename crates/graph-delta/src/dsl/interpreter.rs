@@ -17,57 +17,59 @@ pub fn apply_commands(chunks: &mut Vec<Chunk>, cmds: Vec<DslCommand>) {
 /// Implementation for applying node commands to chunks
 fn apply_node(chunks: &mut Vec<Chunk>, cmd: NodeCmd) {
     match cmd {
-        NodeCmd::Add { id, attrs } => {
-            chunks.push(Chunk {
-                kind: "node".to_string(),
-                id: Some(id),
-                attrs,
-                range: (0, 0), // New chunks have no original range
-                extra: None,
-            });
-        }
-        NodeCmd::Update { id, mut attrs } => {
-            // First, handle rename if "id" is present in attributes.
-            let new_id_opt = attrs.remove("id");
-            let current_id = if let Some(new_id) = new_id_opt.clone() {
-                // Update the node chunk itself
-                if let Some(node_chunk) =
-                    chunks.iter_mut().find(|c| c.kind == "node" && c.id.as_deref() == Some(&id))
-                {
-                    node_chunk.id = Some(new_id.clone());
-                }
-                // Update all edges connected to this node
-                for edge_chunk in chunks.iter_mut().filter(|c| c.kind == "edge") {
-                    if edge_chunk.id.as_deref() == Some(&id) {
-                        edge_chunk.id = Some(new_id.clone());
-                    }
-                    if edge_chunk.extra.as_deref() == Some(&id) {
-                        edge_chunk.extra = Some(new_id.clone());
-                    }
-                }
-                // Update rank statements
-                for rank_chunk in chunks.iter_mut().filter(|c| c.kind == "rank") {
-                    if let Some(nodes_str) = rank_chunk.attrs.get_mut("nodes") {
-                        *nodes_str = nodes_str
-                            .split(',')
-                            .map(|s| if s == id { new_id.clone() } else { s.to_string() })
-                            .collect::<Vec<_>>()
-                            .join(",");
-                    }
-                }
-                new_id
-            } else {
-                id
-            };
+        NodeCmd::Set { id, mut attrs } => {
+            // Check if node exists
+            let node_exists = chunks
+                .iter()
+                .any(|c| c.kind == "node" && c.id.as_deref() == Some(&id));
 
-            // Update other attributes
-            if !attrs.is_empty() {
+            if node_exists {
+                // UPDATE: Node exists
+                // Handle rename if "id" is present in attributes
+                if let Some(new_id) = attrs.remove("id") {
+                    // Update the node chunk itself
+                    if let Some(node_chunk) = chunks
+                        .iter_mut()
+                        .find(|c| c.kind == "node" && c.id.as_deref() == Some(&id))
+                    {
+                        node_chunk.id = Some(new_id.clone());
+                    }
+                    // Update all edges connected to this node
+                    for edge_chunk in chunks.iter_mut().filter(|c| c.kind == "edge") {
+                        if edge_chunk.id.as_deref() == Some(&id) {
+                            edge_chunk.id = Some(new_id.clone());
+                        }
+                        if edge_chunk.extra.as_deref() == Some(&id) {
+                            edge_chunk.extra = Some(new_id.clone());
+                        }
+                    }
+                    // Update rank statements
+                    for rank_chunk in chunks.iter_mut().filter(|c| c.kind == "rank") {
+                        if let Some(nodes_str) = rank_chunk.attrs.get_mut("nodes") {
+                            *nodes_str = nodes_str
+                                .split(',')
+                                .map(|s| if s == id { new_id.clone() } else { s.to_string() })
+                                .collect::<Vec<_>>()
+                                .join(",");
+                        }
+                    }
+                }
+                // Merge other attributes (preserves existing attributes not specified)
                 if let Some(node_chunk) = chunks
                     .iter_mut()
-                    .find(|c| c.kind == "node" && c.id.as_deref() == Some(&current_id))
+                    .find(|c| c.kind == "node" && c.id.as_deref() == Some(&id))
                 {
                     node_chunk.attrs.extend(attrs);
                 }
+            } else {
+                // ADD: Node doesn't exist, create new one
+                chunks.push(Chunk {
+                    kind: "node".to_string(),
+                    id: Some(id),
+                    attrs,
+                    range: (0, 0),
+                    extra: None,
+                });
             }
         }
         NodeCmd::Delete { id } => {
@@ -85,22 +87,24 @@ fn apply_node(chunks: &mut Vec<Chunk>, cmd: NodeCmd) {
 /// Implementation for applying edge commands to chunks
 fn apply_edge(chunks: &mut Vec<Chunk>, cmd: EdgeCmd) {
     match cmd {
-        EdgeCmd::Add { from, to, attrs } => {
-            chunks.push(Chunk {
-                kind: "edge".to_string(),
-                id: Some(from),
-                extra: Some(to),
-                attrs,
-                range: (0, 0),
-            });
-        }
-        EdgeCmd::Update { from, to, attrs } => {
+        EdgeCmd::Set { from, to, attrs } => {
+            // Check if edge exists
             if let Some(edge_chunk) = chunks.iter_mut().find(|c| {
                 c.kind == "edge"
                     && c.id.as_deref() == Some(&from)
                     && c.extra.as_deref() == Some(&to)
             }) {
+                // UPDATE: Edge exists, merge attributes (preserves existing)
                 edge_chunk.attrs.extend(attrs);
+            } else {
+                // ADD: Edge doesn't exist, create new one
+                chunks.push(Chunk {
+                    kind: "edge".to_string(),
+                    id: Some(from),
+                    extra: Some(to),
+                    attrs,
+                    range: (0, 0),
+                });
             }
         }
         EdgeCmd::Delete { from, to } => {
@@ -116,32 +120,30 @@ fn apply_edge(chunks: &mut Vec<Chunk>, cmd: EdgeCmd) {
 /// Implementation for applying cluster/subgraph commands to chunks
 fn apply_cluster(chunks: &mut Vec<Chunk>, cmd: ClusterCmd) {
     match cmd {
-        ClusterCmd::Add { id, attrs } => {
+        ClusterCmd::Set { id, attrs } => {
             // Ensure cluster ID has "cluster_" prefix for dot layout engines
             let cluster_id = if id.starts_with("cluster_") {
                 id
             } else {
                 format!("cluster_{}", id)
             };
-            chunks.push(Chunk {
-                kind: "subgraph".to_string(),
-                id: Some(cluster_id),
-                attrs,
-                range: (0, 0),
-                extra: None,
-            });
-        }
-        ClusterCmd::Update { id, attrs } => {
-            let cluster_id = if id.starts_with("cluster_") {
-                id
-            } else {
-                format!("cluster_{}", id)
-            };
+            
+            // Check if subgraph exists
             if let Some(subgraph_chunk) = chunks
                 .iter_mut()
                 .find(|c| c.kind == "subgraph" && c.id.as_deref() == Some(&cluster_id))
             {
+                // UPDATE: Subgraph exists, merge attributes
                 subgraph_chunk.attrs.extend(attrs);
+            } else {
+                // ADD: Subgraph doesn't exist, create new one
+                chunks.push(Chunk {
+                    kind: "subgraph".to_string(),
+                    id: Some(cluster_id),
+                    attrs,
+                    range: (0, 0),
+                    extra: None,
+                });
             }
         }
         ClusterCmd::Delete { id } => {
