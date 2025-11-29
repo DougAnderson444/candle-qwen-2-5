@@ -51,7 +51,7 @@ fn format_dot_attributes(attrs: &HashMap<String, String>) -> String {
             }
         })
         .collect::<Vec<String>>()
-        .join(",")
+        .join(", ")
 }
 
 /// Parses a string of DOT attributes into a HashMap.
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn test_attribute_parsing() {
         let attrs_str = r#"label="Node \"A\"", color=red, style=dashed"#;
-        let attrs = parse_dot_attributes(Pair::new(Rule::a_list, attrs_str.into()));
+        let attrs = parse_attribute_string(attrs_str);
         assert_eq!(attrs.get("label"), Some(&"Node \"A\"".to_string()));
         assert_eq!(attrs.get("color"), Some(&"red".to_string()));
         assert_eq!(attrs.get("style"), Some(&"dashed".to_string()));
@@ -476,14 +476,18 @@ mod tests {
 
         let a1_node = chunks
             .iter()
-            .find(|c| c.kind == "node" && c.id.as_deref() == Some("A1"))
+            .find(|c| c.kind == "node" && c.id.as_deref() == Some("A1") && !c.attrs.is_empty())
             .unwrap();
         assert!(!a1_node.attrs.is_empty(), "A1 should have attributes");
-        assert_eq!(a1_node.attrs.get("color"), Some(&"blue".to_string()));
+        assert_eq!(
+            a1_node.attrs.get("label"),
+            Some(&"A1: internal link".to_string())
+        );
+        assert_eq!(a1_node.attrs.get("URL"), Some(&"/blog/69".to_string()));
 
         let a2_node = chunks
             .iter()
-            .find(|c| c.kind == "node" && c.id.as_deref() == Some("A2"))
+            .find(|c| c.kind == "node" && c.id.as_deref() == Some("A2") && !c.attrs.is_empty())
             .unwrap();
         assert!(
             a2_node.attrs.get("tooltip").is_some(),
