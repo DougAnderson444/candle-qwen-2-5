@@ -470,7 +470,8 @@ mod tests {
         };
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 2);
-        assert!(!chunks.iter().any(|c| c.id.as_deref() == Some("A")));
+        // Check that no NODE with id="A" exists (edges can still have id="A" as the "from" node)
+        assert!(!chunks.iter().any(|c| c.kind == "node" && c.id.as_deref() == Some("A")));
     }
 
     #[test]
