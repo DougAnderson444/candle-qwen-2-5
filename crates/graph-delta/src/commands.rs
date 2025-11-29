@@ -1,7 +1,8 @@
 //! Commands for modifying DOT graph structures.
-use crate::parser::Chunk;
+use crate::parser::{self, Chunk};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -82,25 +83,16 @@ impl std::fmt::Display for DotCommand {
 pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<(), String> {
     match command {
         DotCommand::CreateNode { id, attrs, parent } => {
-            // Check if node already exists
-            if chunks
-                .iter()
-                .any(|c| c.kind == "node" && c.id.as_ref() == Some(id))
-            {
+            if chunks.iter().any(|c| c.kind == "node" && c.id.as_ref() == Some(id)) {
                 return Err(format!("Node '{}' already exists", id));
             }
 
-            // Find insertion point based on parent
             let (insert_pos, line) = if let Some(parent_name) = parent {
-                // Find parent subgraph
                 let parent_pos = chunks
                     .iter()
                     .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
                     .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
-
                 let parent_range = chunks[parent_pos].range;
-
-                // Find last item inside this parent (before parent's end line)
                 let last_child_pos = chunks
                     .iter()
                     .enumerate()
@@ -108,28 +100,15 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                     .map(|(i, _)| i)
                     .max()
                     .unwrap_or(parent_pos);
-
                 let line = if last_child_pos == parent_pos {
                     parent_range.0 + 1
                 } else {
                     chunks[last_child_pos].range.1 + 1
                 };
-
                 (last_child_pos + 1, line)
             } else {
-                // Insert after last top-level node
-                let insert_pos = chunks
-                    .iter()
-                    .rposition(|c| c.kind == "node")
-                    .map(|pos| pos + 1)
-                    .unwrap_or(chunks.len());
-
-                let line = if insert_pos > 0 {
-                    chunks[insert_pos - 1].range.1 + 1
-                } else {
-                    1
-                };
-
+                let insert_pos = chunks.iter().rposition(|c| c.kind == "node").map(|p| p + 1).unwrap_or(chunks.len());
+                let line = if insert_pos > 0 { chunks[insert_pos - 1].range.1 + 1 } else { 1 };
                 (insert_pos, line)
             };
 
@@ -138,12 +117,11 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 Chunk {
                     kind: "node".to_string(),
                     id: Some(id.clone()),
-                    attrs: attrs.clone(),
+                    attrs: attrs.as_deref().map(parser::parse_attribute_string).unwrap_or_default(),
                     range: (line, line),
                     extra: None,
                 },
             );
-
             Ok(())
         }
 
@@ -153,8 +131,9 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 .find(|c| c.kind == "node" && c.id.as_ref() == Some(id))
                 .ok_or_else(|| format!("Node '{}' not found", id))?;
 
-            if let Some(new_attrs) = attrs {
-                node.attrs = Some(new_attrs.clone());
+            if let Some(new_attrs_str) = attrs {
+                let new_attrs_map = parser::parse_attribute_string(new_attrs_str);
+                node.attrs.extend(new_attrs_map);
             }
             Ok(())
         }
@@ -164,35 +143,21 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 .iter()
                 .position(|c| c.kind == "node" && c.id.as_ref() == Some(id))
                 .ok_or_else(|| format!("Node '{}' not found", id))?;
-
             chunks.remove(pos);
             Ok(())
         }
 
-        DotCommand::CreateEdge {
-            from,
-            to,
-            attrs,
-            parent,
-        } => {
-            // Check if edge already exists
-            if chunks.iter().any(|c| {
-                c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
-            }) {
+        DotCommand::CreateEdge { from, to, attrs, parent } => {
+            if chunks.iter().any(|c| c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)) {
                 return Err(format!("Edge '{}' -> '{}' already exists", from, to));
             }
 
-            // Find insertion point based on parent
             let (insert_pos, line) = if let Some(parent_name) = parent {
-                // Find parent subgraph
                 let parent_pos = chunks
                     .iter()
                     .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
                     .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
-
                 let parent_range = chunks[parent_pos].range;
-
-                // Find last item inside this parent
                 let last_child_pos = chunks
                     .iter()
                     .enumerate()
@@ -200,28 +165,15 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                     .map(|(i, _)| i)
                     .max()
                     .unwrap_or(parent_pos);
-
                 let line = if last_child_pos == parent_pos {
                     parent_range.0 + 1
                 } else {
                     chunks[last_child_pos].range.1 + 1
                 };
-
                 (last_child_pos + 1, line)
             } else {
-                // Insert after last top-level edge
-                let insert_pos = chunks
-                    .iter()
-                    .rposition(|c| c.kind == "edge")
-                    .map(|pos| pos + 1)
-                    .unwrap_or(chunks.len());
-
-                let line = if insert_pos > 0 {
-                    chunks[insert_pos - 1].range.1 + 1
-                } else {
-                    1
-                };
-
+                let insert_pos = chunks.iter().rposition(|c| c.kind == "edge").map(|p| p + 1).unwrap_or(chunks.len());
+                let line = if insert_pos > 0 { chunks[insert_pos - 1].range.1 + 1 } else { 1 };
                 (insert_pos, line)
             };
 
@@ -230,96 +182,60 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 Chunk {
                     kind: "edge".to_string(),
                     id: Some(from.clone()),
-                    attrs: attrs.clone(),
+                    attrs: attrs.as_deref().map(parser::parse_attribute_string).unwrap_or_default(),
                     range: (line, line),
                     extra: Some(to.clone()),
                 },
             );
-
             Ok(())
         }
 
-        // DotCommand::UpdateEdge { from, to, attrs } => {
-        //     let edge = chunks
-        //         .iter_mut()
-        //         .find(|c| {
-        //             c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
-        //         })
-        //         .ok_or_else(|| format!("Edge '{}' -> '{}' not found", from, to))?;
-        //
-        //     if let Some(new_attrs) = attrs {
-        //         edge.attrs = Some(new_attrs.clone());
-        //     }
-        //     Ok(())
-        // }
-        // UpdateEdge but falls back to createEdge if not found
         DotCommand::UpdateEdge { from, to, attrs } => {
-            if let Some(edge) = chunks.iter_mut().find(|c| {
-                c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
-            }) {
-                if let Some(new_attrs) = attrs {
-                    edge.attrs = Some(new_attrs.clone());
+            if let Some(edge) = chunks.iter_mut().find(|c| c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)) {
+                if let Some(new_attrs_str) = attrs {
+                    let new_attrs_map = parser::parse_attribute_string(new_attrs_str);
+                    edge.attrs.extend(new_attrs_map);
                 }
                 Ok(())
             } else {
-                // Edge not found, create it
-                let line = if chunks.is_empty() {
-                    1
-                } else {
-                    chunks.last().unwrap().range.1 + 1
-                };
-
+                let line = if chunks.is_empty() { 1 } else { chunks.last().unwrap().range.1 + 1 };
                 chunks.push(Chunk {
                     kind: "edge".to_string(),
                     id: Some(from.clone()),
-                    attrs: attrs.clone(),
+                    attrs: attrs.as_deref().map(parser::parse_attribute_string).unwrap_or_default(),
                     range: (line, line),
                     extra: Some(to.clone()),
                 });
                 Ok(())
             }
         }
+
         DotCommand::DeleteEdge { from, to } => {
             let pos = chunks
                 .iter()
-                .position(|c| {
-                    c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to)
-                })
+                .position(|c| c.kind == "edge" && c.id.as_ref() == Some(from) && c.extra.as_ref() == Some(to))
                 .ok_or_else(|| format!("Edge '{}' -> '{}' not found", from, to))?;
-
             chunks.remove(pos);
             Ok(())
         }
 
         DotCommand::CreateSubgraph { id, parent } => {
-            // Check if subgraph already exists
-            if let Some(id) = id
-                && chunks
-                    .iter()
-                    .any(|c| c.kind == "subgraph" && c.id.as_ref() == Some(id))
-            {
-                return Err(format!("Subgraph '{}' already exists", id));
+            if let Some(id_str) = id {
+                if chunks.iter().any(|c| c.kind == "subgraph" && c.id.as_ref() == Some(id_str)) {
+                    return Err(format!("Subgraph '{}' already exists", id_str));
+                }
             }
 
-            // Find insertion point and calculate line range based on parent
             let (insert_pos, line_start, line_end) = if let Some(parent_name) = parent {
-                // Find parent subgraph and insert inside it
                 let parent_pos = chunks
                     .iter()
                     .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(parent_name))
                     .ok_or_else(|| format!("Parent subgraph '{}' not found", parent_name))?;
-
                 let parent_range = chunks[parent_pos].range;
-                // Insert after parent subgraph declaration, give it a range inside parent
                 (parent_pos + 1, parent_range.0 + 1, parent_range.1 - 1)
             } else {
-                // Insert at end for top-level subgraph
-                let line = if chunks.is_empty() {
-                    1
-                } else {
-                    chunks.last().unwrap().range.1 + 1
-                };
-                (chunks.len(), line, line + 10) // Give it a 10-line range by default
+                let line = if chunks.is_empty() { 1 } else { chunks.last().unwrap().range.1 + 1 };
+                (chunks.len(), line, line + 10)
             };
 
             chunks.insert(
@@ -327,47 +243,36 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 Chunk {
                     kind: "subgraph".to_string(),
                     id: id.clone(),
-                    attrs: None,
+                    attrs: HashMap::new(),
                     range: (line_start, line_end),
                     extra: None,
                 },
             );
-
             Ok(())
         }
 
         DotCommand::DeleteSubgraph { id } => {
-            // Find the subgraph
             let subgraph_pos = chunks
                 .iter()
                 .position(|c| c.kind == "subgraph" && c.id.as_ref() == Some(id))
                 .ok_or_else(|| format!("Subgraph '{}' not found", id))?;
-
             let subgraph_range = chunks[subgraph_pos].range;
-
-            // Remove subgraph and all its children (chunks within its line range)
             chunks.retain(|c| !(c.range.0 >= subgraph_range.0 && c.range.1 <= subgraph_range.1));
-
             Ok(())
         }
 
         DotCommand::SetGraphAttr { key, value } => {
-            // Look for existing id_eq with this key
-            if let Some(attr) = chunks
-                .iter_mut()
-                .find(|c| c.kind == "id_eq" && c.id.as_ref() == Some(key))
-            {
-                attr.attrs = Some(value.clone());
+            if let Some(attr) = chunks.iter_mut().find(|c| c.kind == "id_eq" && c.id.as_ref() == Some(key)) {
+                attr.extra = Some(value.clone());
             } else {
-                // Create new id_eq at beginning
                 chunks.insert(
                     0,
                     Chunk {
                         kind: "id_eq".to_string(),
                         id: Some(key.clone()),
-                        attrs: Some(value.clone()),
+                        attrs: HashMap::new(),
                         range: (1, 1),
-                        extra: None,
+                        extra: Some(value.clone()),
                     },
                 );
             }
@@ -375,26 +280,17 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
         }
 
         DotCommand::SetNodeDefault { attrs } => {
-            // Look for existing node attr_stmt
-            if let Some(attr) = chunks
-                .iter_mut()
-                .find(|c| c.kind == "attr_stmt" && c.id.as_ref() == Some(&"node".to_string()))
-            {
-                attr.attrs = Some(attrs.clone());
+            let new_attrs = parser::parse_attribute_string(attrs);
+            if let Some(attr) = chunks.iter_mut().find(|c| c.kind == "attr_stmt" && c.id.as_deref() == Some("node")) {
+                attr.attrs.extend(new_attrs);
             } else {
-                // Create new node attr_stmt
-                let insert_pos = chunks
-                    .iter()
-                    .position(|c| c.kind == "attr_stmt")
-                    .map(|pos| pos + 1)
-                    .unwrap_or(0);
-
+                let insert_pos = chunks.iter().position(|c| c.kind == "attr_stmt").unwrap_or(0);
                 chunks.insert(
                     insert_pos,
                     Chunk {
                         kind: "attr_stmt".to_string(),
                         id: Some("node".to_string()),
-                        attrs: Some(attrs.clone()),
+                        attrs: new_attrs,
                         range: (1, 1),
                         extra: None,
                     },
@@ -404,26 +300,17 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
         }
 
         DotCommand::SetEdgeDefault { attrs } => {
-            // Look for existing edge attr_stmt
-            if let Some(attr) = chunks
-                .iter_mut()
-                .find(|c| c.kind == "attr_stmt" && c.id.as_ref() == Some(&"edge".to_string()))
-            {
-                attr.attrs = Some(attrs.clone());
+            let new_attrs = parser::parse_attribute_string(attrs);
+            if let Some(attr) = chunks.iter_mut().find(|c| c.kind == "attr_stmt" && c.id.as_deref() == Some("edge")) {
+                attr.attrs.extend(new_attrs);
             } else {
-                // Create new edge attr_stmt
-                let insert_pos = chunks
-                    .iter()
-                    .position(|c| c.kind == "attr_stmt")
-                    .map(|pos| pos + 1)
-                    .unwrap_or(0);
-
+                let insert_pos = chunks.iter().rposition(|c| c.kind == "attr_stmt").map(|p| p + 1).unwrap_or(0);
                 chunks.insert(
                     insert_pos,
                     Chunk {
                         kind: "attr_stmt".to_string(),
                         id: Some("edge".to_string()),
-                        attrs: Some(attrs.clone()),
+                        attrs: new_attrs,
                         range: (1, 1),
                         extra: None,
                     },
@@ -437,7 +324,6 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
                 .iter()
                 .position(|c| c.kind == "id_eq" && c.id.as_ref() == Some(key))
                 .ok_or_else(|| format!("Attribute '{}' not found", key))?;
-
             chunks.remove(pos);
             Ok(())
         }
@@ -447,27 +333,28 @@ pub fn apply_command(chunks: &mut Vec<Chunk>, command: &DotCommand) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser;
 
     fn create_test_chunks() -> Vec<Chunk> {
         vec![
             Chunk {
                 kind: "node".to_string(),
                 id: Some("A".to_string()),
-                attrs: Some(r#"label="Node A""#.to_string()),
+                attrs: parser::parse_attribute_string(r#"label="Node A""#),
                 range: (1, 1),
                 extra: None,
             },
             Chunk {
                 kind: "node".to_string(),
                 id: Some("B".to_string()),
-                attrs: Some(r#"label="Node B""#.to_string()),
+                attrs: parser::parse_attribute_string(r#"label="Node B""#),
                 range: (2, 2),
                 extra: None,
             },
             Chunk {
                 kind: "edge".to_string(),
                 id: Some("A".to_string()),
-                attrs: Some(r#"label="A to B""#.to_string()),
+                attrs: parser::parse_attribute_string(r#"label="A to B""#),
                 range: (3, 3),
                 extra: Some("B".to_string()),
             },
@@ -479,17 +366,15 @@ mod tests {
         let mut chunks = create_test_chunks();
         let cmd = DotCommand::CreateNode {
             id: "C".to_string(),
-            attrs: Some(r#"label="Node C" shape=box"#.to_string()),
+            attrs: Some(r#"label="Node C",shape=box"#.to_string()),
             parent: None,
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 4);
-        assert!(
-            chunks
-                .iter()
-                .any(|c| c.id.as_ref() == Some(&"C".to_string()))
-        );
+        let node_c = chunks.iter().find(|c| c.id.as_deref() == Some("C")).unwrap();
+        assert_eq!(node_c.attrs.get("label"), Some(&"Node C".to_string()));
+        assert_eq!(node_c.attrs.get("shape"), Some(&"box".to_string()));
     }
 
     #[test]
@@ -497,31 +382,22 @@ mod tests {
         let mut chunks = create_test_chunks();
         let cmd = DotCommand::UpdateNode {
             id: "A".to_string(),
-            attrs: Some(r#"label="Updated A" color=red"#.to_string()),
+            attrs: Some(r#"label="Updated A",color=red"#.to_string()),
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
-        let node = chunks
-            .iter()
-            .find(|c| c.id.as_ref() == Some(&"A".to_string()))
-            .unwrap();
-        assert!(node.attrs.as_ref().unwrap().contains("Updated A"));
+        let node = chunks.iter().find(|c| c.id.as_deref() == Some("A")).unwrap();
+        assert_eq!(node.attrs.get("label"), Some(&"Updated A".to_string()));
+        assert_eq!(node.attrs.get("color"), Some(&"red".to_string()));
     }
 
     #[test]
     fn test_delete_node() {
         let mut chunks = create_test_chunks();
-        let cmd = DotCommand::DeleteNode {
-            id: "A".to_string(),
-        };
-
+        let cmd = DotCommand::DeleteNode { id: "A".to_string() };
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 2);
-        assert!(
-            !chunks
-                .iter()
-                .any(|c| c.id.as_ref() == Some(&"A".to_string()))
-        );
+        assert!(!chunks.iter().any(|c| c.id.as_deref() == Some("A")));
     }
 
     #[test]
@@ -530,17 +406,15 @@ mod tests {
         let cmd = DotCommand::CreateEdge {
             from: "B".to_string(),
             to: "A".to_string(),
-            attrs: Some(r#"label="B to A" style=dashed"#.to_string()),
+            attrs: Some(r#"label="B to A",style=dashed"#.to_string()),
             parent: None,
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 4);
-        assert!(chunks.iter().any(|c| {
-            c.kind == "edge"
-                && c.id.as_ref() == Some(&"B".to_string())
-                && c.extra.as_ref() == Some(&"A".to_string())
-        }));
+        let edge = chunks.iter().find(|c| c.kind == "edge" && c.id.as_deref() == Some("B")).unwrap();
+        assert_eq!(edge.attrs.get("label"), Some(&"B to A".to_string()));
+        assert_eq!(edge.attrs.get("style"), Some(&"dashed".to_string()));
     }
 
     #[test]
@@ -549,25 +423,19 @@ mod tests {
         let cmd = DotCommand::UpdateEdge {
             from: "A".to_string(),
             to: "B".to_string(),
-            attrs: Some(r#"label="Updated edge" color=blue"#.to_string()),
+            attrs: Some(r#"label="Updated edge",color=blue"#.to_string()),
         };
 
         apply_command(&mut chunks, &cmd).unwrap();
-        let edge = chunks
-            .iter()
-            .find(|c| c.kind == "edge" && c.id.as_ref() == Some(&"A".to_string()))
-            .unwrap();
-        assert!(edge.attrs.as_ref().unwrap().contains("Updated edge"));
+        let edge = chunks.iter().find(|c| c.kind == "edge" && c.id.as_deref() == Some("A")).unwrap();
+        assert_eq!(edge.attrs.get("label"), Some(&"Updated edge".to_string()));
+        assert_eq!(edge.attrs.get("color"), Some(&"blue".to_string()));
     }
 
     #[test]
     fn test_delete_edge() {
         let mut chunks = create_test_chunks();
-        let cmd = DotCommand::DeleteEdge {
-            from: "A".to_string(),
-            to: "B".to_string(),
-        };
-
+        let cmd = DotCommand::DeleteEdge { from: "A".to_string(), to: "B".to_string() };
         apply_command(&mut chunks, &cmd).unwrap();
         assert_eq!(chunks.len(), 2);
         assert!(!chunks.iter().any(|c| c.kind == "edge"));

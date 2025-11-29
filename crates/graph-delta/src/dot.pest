@@ -25,7 +25,7 @@ stmt = { edge_stmt | attr_stmt | id_eq | node_stmt | subgraph }
 
 attr_stmt = { (graph | node | edge) ~ attr_list }
 attr_list = { "[" ~ a_list ~ "]" ~ attr_list? }
-a_list = { ident ~ "=" ~ ident ~ ( ";" | "," )? ~ a_list? }
+a_list = { id_eq ~ ( ("," | ";" | WHITESPACE+) ~ id_eq )* }
 
 edge_stmt = { (subgraph | node_id) ~ edge_rhs ~ attr_list? }
 edge_rhs = { edgeop ~ (subgraph | node_id) ~ edge_rhs? }

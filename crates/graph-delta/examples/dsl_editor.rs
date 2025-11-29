@@ -1,0 +1,200 @@
+//! Example of using the new GraphOps Domain Specific Language (DSL)
+//! with the modern Pest parser and interpreter.
+//!
+//! Demonstrates using an LLM to generate DSL from a natural language
+//! request and applying it to a graph, with the new interpreter
+//! handling attribute-preserving updates.
+//!
+//! Run:
+//! ```sh
+//! cargo run --release --example dsl_editor --features graph-delta/llm
+//! ```
+
+use anyhow::{anyhow, Result};
+use std::io::Write;
+use std::time::Instant;
+
+use graph_delta::{
+    dsl::{apply_commands, parse_dsl, DslCommand},
+    parser::{chunks_to_complete_dot, parse_dot_to_chunks},
+};
+
+use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
+
+fn format_attrs(attrs: &std::collections::HashMap<String, String>) -> String {
+    if attrs.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " [{}]",
+            attrs
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let start_time = Instant::now();
+    println!("=== LLM Graph Editor (new GraphOps DSL) ===\n");
+
+    // ------------------------------------------------------
+    // 1. Load the initial graph
+    // ------------------------------------------------------
+    let initial_dot = r#"
+    digraph G {
+        A [label="Node A", color="blue"];
+        B [label="Node B", shape="box", fontsize="10"];
+        A -> B [label="Original Edge", penwidth="2"];
+    }
+    "#;
+
+    let mut chunks = parse_dot_to_chunks(initial_dot)?;
+    println!("Initial Graph:");
+    println!("{}\n", chunks_to_complete_dot(&chunks, Some("G")));
+
+    // ------------------------------------------------------
+    // 2. User request → we will ask LLM to emit NEW DSL
+    // ------------------------------------------------------
+    let user_request = r#"
+make the edge A->B red and thicker
+increase B's fontsize to 18
+add a new edge B->A labeled "reverse"
+set edge defaults color=gray arrowsize=0.7
+    "#;
+
+    println!("User: \"{}\"\n", user_request.trim());
+
+    // ------------------------------------------------------
+    // 3. Initialize Qwen 0.5B and generate DSL
+    // ------------------------------------------------------
+    let model_args = ModelArgs {
+        cpu: true,
+        which: Which::W25_0_5b,
+        ..Default::default()
+    };
+    let mut model = Qwen2Model::new(&model_args).await?;
+
+    let few_shot_prompt = include_str!("../src/dsl/few-shot.txt");
+    
+    // Create a summary of the current graph state
+    let graph_summary = chunks
+        .iter()
+        .map(|c| match c.kind.as_str() {
+            "node" => format!(
+                "node: id={}{}",
+                c.id.as_deref().unwrap_or("?"),
+                format_attrs(&c.attrs)
+            ),
+            "edge" => format!(
+                "edge: {} -> {}{}",
+                c.id.as_deref().unwrap_or("?"),
+                c.extra.as_deref().unwrap_or("?"),
+                format_attrs(&c.attrs)
+            ),
+            _ => format!("{}: {:?}", c.kind, c.id),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    
+    // Append the new user request with current graph context
+    let full_prompt = format!(
+        "{}\n\n=====================\nCURRENT GRAPH STATE\n=====================\n{}\n\n=====================\nUSER REQUEST\n=====================\n\"{}\"\n\n=====================\nGRAPHOPS DSL OUTPUT\n=====================\n",
+        few_shot_prompt.trim(),
+        graph_summary,
+        user_request.trim()
+    );
+
+    println!("--- LLM Response (DSL) ---");
+    let mut llm_resp = String::new();
+    model.generate(&full_prompt, 256, |s| {
+        print!("{s}");
+        std::io::stdout().flush()?;
+        llm_resp.push_str(&s);
+        Ok(())
+    })?;
+    llm_resp = llm_resp.trim().to_string();
+    
+    // Sanitize LLM output: remove any markdown fences, section markers, or non-DSL lines
+    llm_resp = llm_resp
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // Skip empty lines
+            if trimmed.is_empty() {
+                return false;
+            }
+            // Skip markdown code fences
+            if trimmed.starts_with("```") {
+                return false;
+            }
+            // Skip section markers
+            if trimmed.starts_with("=====") || trimmed.starts_with("---") ||
+               trimmed.contains("=====") || trimmed.contains("USER REQUEST") ||
+               trimmed.contains("GRAPHOPS DSL") || trimmed.contains("CHUNKS") {
+                return false;
+            }
+            // Skip lines that look like descriptive text (containing colons but not valid DSL)
+            if trimmed.contains(':') && !trimmed.starts_with("node ") && 
+               !trimmed.starts_with("edge ") && !trimmed.starts_with("subgraph ") &&
+               !trimmed.starts_with("graph ") && !trimmed.starts_with("rank ") {
+                return false;
+            }
+            // Keep lines that start with valid DSL commands
+            trimmed.starts_with("node ") ||
+            trimmed.starts_with("edge ") ||
+            trimmed.starts_with("subgraph ") ||
+            trimmed.starts_with("graph ") ||
+            trimmed.starts_with("rank ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    println!("\n");
+
+    // ------------------------------------------------------
+    // 4. Parse modern DSL into an AST
+    // ------------------------------------------------------
+    println!("--- Parsing DSL ---");
+    let cmds: Vec<DslCommand> = match parse_dsl(&llm_resp) {
+        Ok(commands) => {
+            if commands.is_empty() {
+                println!("Warning: No valid DSL commands generated by LLM.");
+                println!("The LLM output may need a larger or better-tuned model.\n");
+                return Ok(());
+            }
+            commands
+        }
+        Err(e) => {
+            println!("Error parsing DSL: {}", e);
+            println!("\nThe LLM generated invalid DSL syntax.");
+            println!("This is expected with smaller models (0.5B).\n");
+            println!("Filtered LLM output was:");
+            println!("{}", llm_resp);
+            return Ok(());
+        }
+    };
+    for c in &cmds {
+        println!("  AST: {:?}", c);
+    }
+    println!();
+
+    // ------------------------------------------------------
+    // 5. Apply commands using the new interpreter
+    // ------------------------------------------------------
+    println!("--- Applying Actions ---");
+    apply_commands(&mut chunks, cmds);
+    println!("Successfully applied all commands.\n");
+
+    // ------------------------------------------------------
+    // 6. Output modified graph
+    // ------------------------------------------------------
+    let modified = chunks_to_complete_dot(&chunks, Some("G"));
+    println!("--- Modified Graph ---");
+    println!("{modified}");
+    println!("Execution time: {:?}", start_time.elapsed());
+
+    Ok(())
+}

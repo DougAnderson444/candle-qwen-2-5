@@ -28,3 +28,8 @@ required-features = ["llm", "regex"]
 name = "llm_editor"
 path = "examples/llm_editor.rs"
 required-features = ["llm"]
+
+[[example]]
+name = "dsl_editor"
+path = "examples/dsl_editor.rs"
+required-features = ["llm"]
