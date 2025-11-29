@@ -23,7 +23,6 @@ use candle_qwen2_5_core::{ModelArgs, Qwen2Model, Which};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let start_time = Instant::now();
     println!("=== LLM Graph Editor (new GraphOps DSL) ===\n");
 
     // ------------------------------------------------------
@@ -45,10 +44,7 @@ async fn main() -> Result<()> {
     // 2. User request - LLM will generate simple DSL
     //    No need to know current graph state!
     // ------------------------------------------------------
-    let user_request = r#"
-Make the edge from A to B red and thicker.
-Add a new node C with a blue box shape.
-    "#;
+    let user_request = r#"Make the edge from A to B red and thicker"#;
 
     println!("User: \"{}\"\n", user_request.trim());
 
@@ -57,10 +53,12 @@ Add a new node C with a blue box shape.
     // ------------------------------------------------------
     let model_args = ModelArgs {
         cpu: true,
-        which: Which::W25_0_5b,
+        which: Which::W25_1_5b,
         ..Default::default()
     };
     let mut model = Qwen2Model::new(&model_args).await?;
+
+    let start_time = Instant::now();
 
     let few_shot_prompt = include_str!("../src/dsl/few-shot.txt");
 
