@@ -7,8 +7,8 @@ use tokenizers::{PaddingParams, Tokenizer};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Params {
-    sentences: Vec<String>,
-    normalize_embeddings: bool,
+    pub(crate) sentences: Vec<String>,
+    pub(crate) normalize_embeddings: bool,
 }
 
 pub struct Model {
@@ -23,21 +23,33 @@ impl Model {
         tokenizer: Vec<u8>,
         config: Vec<u8>,
     ) -> Result<Model, Error> {
+        let tokenizer =
+            Tokenizer::from_bytes(&tokenizer).map_err(|m| Error::Tokenizer(m.to_string()))?;
+        Ok(Self::new(weights, tokenizer, config)?)
+    }
+
+    /// New from Types
+    pub fn new(weights: Vec<u8>, tokenizer: Tokenizer, config: Vec<u8>) -> Result<Model, Error> {
         let device = &Device::Cpu;
         let vb = VarBuilder::from_buffered_safetensors(weights, DType::F32, device)?;
         let config: Config = serde_json::from_slice(&config)?;
-        let tokenizer =
-            Tokenizer::from_bytes(&tokenizer).map_err(|m| Error::Tokenizer(m.to_string()))?;
         let bert = BertModel::load(vb, &config)?;
+        Ok(Self { bert, tokenizer })
+    }
+
+    /// Create [Model] from [ModelArgs] using async I/O.
+    #[cfg(feature = "tokio")]
+    pub async fn from_args(args: &crate::model_args::ModelArgs) -> anyhow::Result<Model> {
+        let bert = args.bert().await?;
+        let tokenizer = args
+            .tokenizer()
+            .await
+            .map_err(|m| Error::Tokenizer(m.to_string()))?;
 
         Ok(Self { bert, tokenizer })
     }
 
-    /// New from Types
-    pub fn new(bert: BertModel, tokenizer: Tokenizer) -> Self {
-        Self { bert, tokenizer }
-    }
-
+    /// Get embeddings for the given input sentences.
     pub fn get_embeddings(&mut self, input: Params) -> Result<Embeddings, Error> {
         let sentences = input.sentences;
         let normalize_embeddings = input.normalize_embeddings;
