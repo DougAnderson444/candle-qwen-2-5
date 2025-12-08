@@ -1,0 +1,28 @@
+[package]
+name = "candle-embeddings"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+candle = { version = "0.9.1", package = "candle-core" }
+candle-nn = { version = "0.9.1" }
+candle-transformers = { version = "0.9.1" }
+num-traits = "0.2.15"
+tokenizers = { version = "0.21.2-dev.0", default-features = false, features = [
+  "fancy-regex",
+] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+
+tokio = { version = "1.28", features = ["full"], optional = true }
+hf-hub = { version = "0.4.3", optional = true }
+
+[dev-dependencies]
+dirs = "6.0"
+
+[features]
+default = []
+loader = ["tokio", "hf-hub"]
