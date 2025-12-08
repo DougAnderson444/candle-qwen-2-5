@@ -5,7 +5,7 @@ Project contains the crates:
 - Qwen 2.5 [core model code](./candle-qwen2-5-core/)
 - Qwen 2.5 [cli](./candle-qwen2-5-cli/)
 - Basic [Dioxus App](./app/)
-- [Vector Emeddings](./crates/candle-embeddings/) using Candle
+- [Vector Emeddings](./crates/candle-embeddings/) using Candle & Intfloat E5 small v2 model
 
 ## Model cache from Hugging Face
 
