@@ -1,10 +1,11 @@
-# Qwen 2.5 using Candle
+# Candle Machine Learning library Utilities
 
 Project contains the crates:
 
-- [core model code](./candle-qwen2-5-core/)
-- [cli](./candle-qwen2-5-cli/)
-- [Dioxus App](./app/)
+- Qwen 2.5 [core model code](./candle-qwen2-5-core/)
+- Qwen 2.5 [cli](./candle-qwen2-5-cli/)
+- Basic [Dioxus App](./app/)
+- [Vector Emeddings](./crates/candle-embeddings/) using Candle
 
 ## Model cache from Hugging Face
 
